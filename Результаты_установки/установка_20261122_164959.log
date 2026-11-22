@@ -1,0 +1,11 @@
+﻿Docker Engine: 29.7.2
+SQL*Plus успешно подключился к Oracle.
+  IF SUBSTR(v_version,1,2) <> '19' THEN RAISE_APPLICATION_ERROR(-20001,'This installer requires Oracle Database 19c.'); END IF;
+                                        *
+ERROR at line 3:
+ORA-06550: line 3, column 41:
+PLS-00201: identifier 'RAISE_APPLICATION_ERROR' must be declared
+ORA-06550: line 3, column 41:
+PL/SQL: Statement ignored
+
+

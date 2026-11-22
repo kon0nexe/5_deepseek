@@ -1,0 +1,2577 @@
+================================================================================
+FILE: HK_DINAMO_Node_App\db\01_web_app_api.sql
+================================================================================
+-- ============================================================================
+-- Web API gateway for the Dynamo Minsk coursework application.
+-- Run as HK_DINAMO in the project's PDB after install_all.sql.
+-- The web database account receives EXECUTE on this package only; no table DML.
+-- ============================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+SET ECHO ON
+SET DEFINE OFF
+
+CREATE OR REPLACE PACKAGE pkg_web_api AUTHID DEFINER AS
+    PROCEDURE has_main_admin(p_exists OUT NUMBER);
+    PROCEDURE get_login(p_username IN VARCHAR2, p_user_id OUT NUMBER,
+        p_password_hash OUT VARCHAR2, p_email OUT VARCHAR2,
+        p_role OUT VARCHAR2, p_is_active OUT CHAR);
+    PROCEDURE register_user(p_username IN VARCHAR2, p_password_hash IN VARCHAR2,
+        p_email IN VARCHAR2, p_first_name IN VARCHAR2, p_last_name IN VARCHAR2,
+        p_city IN VARCHAR2, p_user_id OUT NUMBER);
+    PROCEDURE bootstrap_main_admin(p_username IN VARCHAR2, p_password_hash IN VARCHAR2,
+        p_email IN VARCHAR2, p_first_name IN VARCHAR2, p_last_name IN VARCHAR2,
+        p_city IN VARCHAR2, p_user_id OUT NUMBER);
+
+    PROCEDURE dashboard(p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_players(p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_matches(p_date_from IN DATE, p_date_to IN DATE,
+        p_result OUT SYS_REFCURSOR);
+    PROCEDURE match_detail(p_match_id IN NUMBER, p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_merch(p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_stadiums(p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_sectors(p_stadium_id IN NUMBER, p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_sector_rows(p_match_id IN NUMBER, p_sector_id IN NUMBER,
+        p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_seats(p_match_id IN NUMBER, p_sector_id IN NUMBER,
+        p_seat_row IN NUMBER, p_result OUT SYS_REFCURSOR);
+    PROCEDURE reserve_ticket(p_ticket_id IN NUMBER, p_app_user_id IN NUMBER,
+        p_minutes IN NUMBER DEFAULT 15);
+    PROCEDURE purchase_ticket(p_ticket_id IN NUMBER, p_app_user_id IN NUMBER);
+    PROCEDURE cancel_reservation(p_ticket_id IN NUMBER, p_app_user_id IN NUMBER);
+    PROCEDURE my_tickets(p_app_user_id IN NUMBER, p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_favorites(p_app_user_id IN NUMBER, p_result OUT SYS_REFCURSOR);
+    PROCEDURE add_favorite(p_app_user_id IN NUMBER, p_player_id IN NUMBER);
+    PROCEDURE remove_favorite(p_app_user_id IN NUMBER, p_player_id IN NUMBER);
+
+    PROCEDURE admin_players(p_result OUT SYS_REFCURSOR);
+    PROCEDURE admin_matches(p_result OUT SYS_REFCURSOR);
+    PROCEDURE admin_tickets(p_match_id IN NUMBER, p_status IN VARCHAR2,
+        p_page IN NUMBER, p_page_size IN NUMBER, p_result OUT SYS_REFCURSOR);
+    PROCEDURE admin_merch(p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_fans(p_result OUT SYS_REFCURSOR);
+    PROCEDURE add_player(p_first_name IN VARCHAR2, p_last_name IN VARCHAR2,
+        p_position IN VARCHAR2, p_jersey_number IN NUMBER, p_birth_date IN DATE,
+        p_country IN VARCHAR2, p_height_cm IN NUMBER, p_weight_kg IN NUMBER,
+        p_player_id OUT NUMBER);
+    PROCEDURE update_player(p_player_id IN NUMBER, p_first_name IN VARCHAR2,
+        p_last_name IN VARCHAR2, p_position IN VARCHAR2, p_jersey_number IN NUMBER,
+        p_birth_date IN DATE, p_country IN VARCHAR2, p_height_cm IN NUMBER,
+        p_weight_kg IN NUMBER, p_is_active IN CHAR);
+    PROCEDURE delete_player(p_player_id IN NUMBER);
+    PROCEDURE add_match(p_match_date IN DATE, p_opponent_name IN VARCHAR2,
+        p_stadium_id IN NUMBER, p_is_home IN CHAR, p_match_id OUT NUMBER);
+    PROCEDURE update_match(p_match_id IN NUMBER, p_match_date IN DATE,
+        p_opponent_name IN VARCHAR2, p_stadium_id IN NUMBER, p_is_home IN CHAR,
+        p_match_status IN VARCHAR2, p_goals_for IN NUMBER, p_goals_against IN NUMBER);
+    PROCEDURE delete_match(p_match_id IN NUMBER);
+    PROCEDURE add_ticket(p_match_id IN NUMBER, p_sector_id IN NUMBER,
+        p_seat_row IN NUMBER, p_seat_number IN NUMBER, p_price IN NUMBER,
+        p_ticket_id OUT NUMBER);
+    PROCEDURE update_ticket(p_ticket_id IN NUMBER, p_seat_row IN NUMBER,
+        p_seat_number IN NUMBER, p_price IN NUMBER);
+    PROCEDURE delete_ticket(p_ticket_id IN NUMBER);
+    PROCEDURE sell_ticket(p_ticket_id IN NUMBER, p_fan_id IN NUMBER);
+    PROCEDURE return_ticket(p_ticket_id IN NUMBER);
+    PROCEDURE release_expired(p_released_count OUT NUMBER);
+    PROCEDURE add_merch(p_name IN VARCHAR2, p_category IN VARCHAR2,
+        p_price IN NUMBER, p_description IN VARCHAR2, p_merch_id OUT NUMBER);
+    PROCEDURE update_merch(p_merch_id IN NUMBER, p_name IN VARCHAR2,
+        p_category IN VARCHAR2, p_price IN NUMBER, p_description IN VARCHAR2,
+        p_is_active IN CHAR);
+    PROCEDURE delete_merch(p_merch_id IN NUMBER);
+
+    PROCEDURE app_users(p_result OUT SYS_REFCURSOR);
+    PROCEDURE change_user_role(p_user_id IN NUMBER, p_role IN VARCHAR2);
+    PROCEDURE set_user_active(p_user_id IN NUMBER, p_is_active IN CHAR);
+
+    PROCEDURE olap_summary(p_date_from IN DATE, p_date_to IN DATE,
+        p_sold_count OUT NUMBER, p_revenue OUT NUMBER, p_merch_revenue OUT NUMBER);
+    PROCEDURE olap_sales_rollup(p_date_from IN DATE, p_date_to IN DATE,
+        p_result OUT SYS_REFCURSOR);
+    PROCEDURE olap_sales_cube(p_date_from IN DATE, p_date_to IN DATE,
+        p_result OUT SYS_REFCURSOR);
+    PROCEDURE olap_players(p_result OUT SYS_REFCURSOR);
+    PROCEDURE import_players_json(p_json IN CLOB, p_inserted OUT NUMBER);
+    PROCEDURE export_players_json(p_json OUT CLOB);
+END pkg_web_api;
+/
+
+CREATE OR REPLACE PACKAGE BODY pkg_web_api AS
+    PROCEDURE has_main_admin(p_exists OUT NUMBER) IS
+    BEGIN
+        SELECT CASE WHEN COUNT(*)=0 THEN 0 ELSE 1 END
+          INTO p_exists FROM app_users WHERE role='MAIN_ADMIN';
+    END;
+
+    PROCEDURE get_login(p_username IN VARCHAR2, p_user_id OUT NUMBER,
+        p_password_hash OUT VARCHAR2, p_email OUT VARCHAR2,
+        p_role OUT VARCHAR2, p_is_active OUT CHAR) IS
+    BEGIN
+        p_user_id := NULL; p_password_hash := NULL; p_email := NULL;
+        p_role := NULL; p_is_active := 'N';
+        SELECT user_id, password_hash, email, role, is_active
+          INTO p_user_id, p_password_hash, p_email, p_role, p_is_active
+          FROM app_users WHERE LOWER(username)=LOWER(TRIM(p_username));
+    EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+    END;
+
+    PROCEDURE register_user(p_username IN VARCHAR2, p_password_hash IN VARCHAR2,
+        p_email IN VARCHAR2, p_first_name IN VARCHAR2, p_last_name IN VARCHAR2,
+        p_city IN VARCHAR2, p_user_id OUT NUMBER) IS
+        l_fan_id NUMBER;
+    BEGIN
+        INSERT INTO dim_fan(first_name,last_name,email,city)
+        VALUES(TRIM(p_first_name),TRIM(p_last_name),LOWER(TRIM(p_email)),p_city)
+        RETURNING fan_id INTO l_fan_id;
+        pkg_security_api.create_app_user(TRIM(p_username),p_password_hash,
+            LOWER(TRIM(p_email)),'USER',l_fan_id,p_user_id);
+    END;
+
+    PROCEDURE bootstrap_main_admin(p_username IN VARCHAR2, p_password_hash IN VARCHAR2,
+        p_email IN VARCHAR2, p_first_name IN VARCHAR2, p_last_name IN VARCHAR2,
+        p_city IN VARCHAR2, p_user_id OUT NUMBER) IS
+        l_count NUMBER;
+        l_fan_id NUMBER;
+    BEGIN
+        SELECT COUNT(*) INTO l_count FROM app_users WHERE role='MAIN_ADMIN';
+        IF l_count > 0 THEN
+            RAISE_APPLICATION_ERROR(-20110,'Главный администратор уже создан.');
+        END IF;
+        INSERT INTO dim_fan(first_name,last_name,email,city)
+        VALUES(TRIM(p_first_name),TRIM(p_last_name),LOWER(TRIM(p_email)),p_city)
+        RETURNING fan_id INTO l_fan_id;
+        pkg_security_api.create_app_user(TRIM(p_username),p_password_hash,
+            LOWER(TRIM(p_email)),'MAIN_ADMIN',l_fan_id,p_user_id);
+    END;
+
+    PROCEDURE dashboard(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT (SELECT COUNT(*) FROM dim_player WHERE is_active='Y') AS players_count,
+                   (SELECT COUNT(*) FROM dim_match WHERE match_status='SCHEDULED'
+                      AND match_date>=TRUNC(SYSDATE)
+                      AND opponent_name NOT LIKE 'TEST PERF %') AS upcoming_matches,
+                   (SELECT COUNT(*) FROM tickets WHERE status='SOLD') AS sold_tickets,
+                   (SELECT NVL(SUM(price),0) FROM tickets WHERE status='SOLD') AS ticket_revenue,
+                   (SELECT COUNT(*) FROM app_users WHERE is_active='Y') AS active_users
+              FROM dual;
+    END;
+
+    PROCEDURE list_players(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT p.player_id,p.first_name,p.last_name,p.position,p.jersey_number,
+                   p.birth_date,p.country,p.height_cm,p.weight_kg,
+                   NVL(f.fans_favorited,0) AS fans_favorited,
+                   NVL(s.goals_total,0) AS goals_total,
+                   NVL(s.assists_total,0) AS assists_total,
+                   NVL(s.points_total,0) AS points_total
+              FROM dim_player p
+              LEFT JOIN v_player_popularity f ON f.player_id=p.player_id
+              LEFT JOIN v_player_performance s ON s.player_id=p.player_id
+             WHERE p.is_active='Y'
+             ORDER BY p.last_name,p.first_name;
+    END;
+
+    PROCEDURE list_matches(p_date_from IN DATE, p_date_to IN DATE,
+        p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT m.match_id,m.match_date,m.opponent_name,m.stadium_id,
+                   st.name AS stadium,st.city,m.is_home,m.goals_for,m.goals_against,
+                   m.match_status,
+                   (SELECT COUNT(*) FROM tickets t WHERE t.match_id=m.match_id
+                      AND (t.status IN ('FREE','RETURNED') OR (t.status='RESERVED' AND t.reserved_until<=SYSDATE)))
+                      AS available_tickets
+              FROM dim_match m JOIN dim_stadium st ON st.stadium_id=m.stadium_id
+             WHERE m.opponent_name NOT LIKE 'TEST PERF %'
+               AND (p_date_from IS NULL OR m.match_date>=TRUNC(p_date_from))
+               AND (p_date_to IS NULL OR m.match_date<TRUNC(p_date_to)+1)
+             ORDER BY m.match_date;
+    END;
+
+    PROCEDURE match_detail(p_match_id IN NUMBER, p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT m.match_id,m.match_date,m.opponent_name,m.stadium_id,
+                   st.name AS stadium,st.city,st.capacity,m.is_home,
+                   m.goals_for,m.goals_against,m.match_status
+              FROM dim_match m JOIN dim_stadium st ON st.stadium_id=m.stadium_id
+             WHERE m.match_id=p_match_id AND m.opponent_name NOT LIKE 'TEST PERF %';
+    END;
+
+    PROCEDURE list_merch(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT merch_id,name,category,price,description
+              FROM dim_merch WHERE is_active='Y' ORDER BY category,name;
+    END;
+
+    PROCEDURE list_stadiums(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR SELECT stadium_id,name,city,capacity FROM dim_stadium ORDER BY name;
+    END;
+
+    PROCEDURE list_sectors(p_stadium_id IN NUMBER, p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT sector_id,stadium_id,sector_code,category,capacity
+              FROM dim_sector WHERE stadium_id=p_stadium_id ORDER BY sector_code;
+    END;
+
+    PROCEDURE list_sector_rows(p_match_id IN NUMBER, p_sector_id IN NUMBER,
+        p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT seat_row,COUNT(*) AS seats_total,
+                   SUM(CASE WHEN status IN ('FREE','RETURNED') OR
+                      (status='RESERVED' AND reserved_until<=SYSDATE) THEN 1 ELSE 0 END) AS seats_free
+              FROM tickets WHERE match_id=p_match_id AND sector_id=p_sector_id
+             GROUP BY seat_row ORDER BY seat_row;
+    END;
+
+    PROCEDURE list_seats(p_match_id IN NUMBER, p_sector_id IN NUMBER,
+        p_seat_row IN NUMBER, p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT ticket_id,match_id,sector_id,seat_row,seat_number,price,
+                   CASE WHEN status='RESERVED' AND reserved_until<=SYSDATE
+                        THEN 'FREE' ELSE status END AS status,
+                   CASE WHEN status='RESERVED' AND reserved_until>SYSDATE
+                        THEN reserved_until END AS reserved_until
+              FROM tickets
+             WHERE match_id=p_match_id AND sector_id=p_sector_id AND seat_row=p_seat_row
+             ORDER BY seat_number;
+    END;
+
+    PROCEDURE reserve_ticket(p_ticket_id IN NUMBER, p_app_user_id IN NUMBER,
+        p_minutes IN NUMBER DEFAULT 15) IS
+        l_fan_id NUMBER; l_status VARCHAR2(10); l_until DATE;
+    BEGIN
+        IF p_minutes IS NULL OR p_minutes<1 OR p_minutes>120 THEN
+            RAISE_APPLICATION_ERROR(-20120,'Срок резерва должен быть от 1 до 120 минут.');
+        END IF;
+        SELECT fan_id INTO l_fan_id FROM app_users
+         WHERE user_id=p_app_user_id AND is_active='Y' AND fan_id IS NOT NULL;
+        SELECT status,reserved_until INTO l_status,l_until FROM tickets
+         WHERE ticket_id=p_ticket_id FOR UPDATE;
+        IF l_status='RESERVED' AND l_until<=SYSDATE THEN
+            UPDATE tickets SET status='FREE',reserved_by=NULL,reserved_until=NULL
+             WHERE ticket_id=p_ticket_id;
+            l_status:='FREE';
+        END IF;
+        IF l_status NOT IN ('FREE','RETURNED') THEN
+            RAISE_APPLICATION_ERROR(-20121,'Это место уже занято или зарезервировано.');
+        END IF;
+        UPDATE tickets SET status='RESERVED',fan_id=NULL,sale_time_id=NULL,
+            reserved_by=l_fan_id,reserved_until=SYSDATE+(p_minutes/1440)
+         WHERE ticket_id=p_ticket_id;
+    EXCEPTION WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20122,'Пользователь или билет не найден.');
+    END;
+
+    PROCEDURE purchase_ticket(p_ticket_id IN NUMBER, p_app_user_id IN NUMBER) IS
+        l_fan_id NUMBER; l_reserved_by NUMBER; l_until DATE; l_status VARCHAR2(10);
+        l_time_id NUMBER(8);
+    BEGIN
+        SELECT fan_id INTO l_fan_id FROM app_users
+         WHERE user_id=p_app_user_id AND is_active='Y' AND fan_id IS NOT NULL;
+        SELECT status,reserved_by,reserved_until INTO l_status,l_reserved_by,l_until
+          FROM tickets WHERE ticket_id=p_ticket_id FOR UPDATE;
+        IF l_status<>'RESERVED' OR l_reserved_by<>l_fan_id OR l_until<=SYSDATE THEN
+            RAISE_APPLICATION_ERROR(-20123,'Резерв истёк или билет зарезервирован другим пользователем.');
+        END IF;
+        SELECT time_id INTO l_time_id FROM dim_time WHERE full_date=TRUNC(SYSDATE);
+        UPDATE tickets SET status='SOLD',fan_id=l_fan_id,sale_time_id=l_time_id,
+            reserved_by=NULL,reserved_until=NULL WHERE ticket_id=p_ticket_id;
+    EXCEPTION WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20124,'Не найден пользователь, билет или календарная дата.');
+    END;
+
+    PROCEDURE cancel_reservation(p_ticket_id IN NUMBER, p_app_user_id IN NUMBER) IS
+        l_fan_id NUMBER; l_reserved_by NUMBER; l_status VARCHAR2(10);
+    BEGIN
+        SELECT fan_id INTO l_fan_id FROM app_users
+         WHERE user_id=p_app_user_id AND is_active='Y' AND fan_id IS NOT NULL;
+        SELECT status,reserved_by INTO l_status,l_reserved_by FROM tickets
+         WHERE ticket_id=p_ticket_id FOR UPDATE;
+        IF l_status<>'RESERVED' OR l_reserved_by<>l_fan_id THEN
+            RAISE_APPLICATION_ERROR(-20125,'Резерв не принадлежит текущему пользователю.');
+        END IF;
+        UPDATE tickets SET status='FREE',reserved_by=NULL,reserved_until=NULL
+         WHERE ticket_id=p_ticket_id;
+    EXCEPTION WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20124,'Не найден пользователь или билет.');
+    END;
+
+    PROCEDURE my_tickets(p_app_user_id IN NUMBER, p_result OUT SYS_REFCURSOR) IS
+        l_fan_id NUMBER;
+    BEGIN
+        SELECT fan_id INTO l_fan_id FROM app_users
+         WHERE user_id=p_app_user_id AND is_active='Y' AND fan_id IS NOT NULL;
+        OPEN p_result FOR
+            SELECT t.ticket_id,t.status,t.price,t.seat_row,t.seat_number,
+                   s.sector_code,m.match_id,m.match_date,m.opponent_name,
+                   CASE WHEN t.status='RESERVED' THEN t.reserved_until END AS reserved_until
+              FROM tickets t JOIN dim_sector s ON s.sector_id=t.sector_id
+              JOIN dim_match m ON m.match_id=t.match_id
+             WHERE (t.fan_id=l_fan_id AND t.status IN ('SOLD','RETURNED'))
+                OR (t.reserved_by=l_fan_id AND t.status='RESERVED')
+             ORDER BY m.match_date DESC,t.ticket_id DESC;
+    END;
+
+    PROCEDURE list_favorites(p_app_user_id IN NUMBER, p_result OUT SYS_REFCURSOR) IS
+        l_fan_id NUMBER;
+    BEGIN
+        SELECT fan_id INTO l_fan_id FROM app_users
+         WHERE user_id=p_app_user_id AND is_active='Y' AND fan_id IS NOT NULL;
+        OPEN p_result FOR
+            SELECT p.player_id,p.first_name,p.last_name,p.position,f.created_at
+              FROM fan_player_favorites f JOIN dim_player p ON p.player_id=f.player_id
+             WHERE f.fan_id=l_fan_id ORDER BY f.created_at DESC;
+    END;
+
+    PROCEDURE add_favorite(p_app_user_id IN NUMBER, p_player_id IN NUMBER) IS
+        l_fan_id NUMBER;
+    BEGIN
+        SELECT fan_id INTO l_fan_id FROM app_users
+         WHERE user_id=p_app_user_id AND is_active='Y' AND fan_id IS NOT NULL;
+        INSERT INTO fan_player_favorites(fan_id,player_id) VALUES(l_fan_id,p_player_id);
+    EXCEPTION WHEN DUP_VAL_ON_INDEX THEN
+        RAISE_APPLICATION_ERROR(-20126,'Игрок уже добавлен в избранное.');
+    END;
+
+    PROCEDURE remove_favorite(p_app_user_id IN NUMBER, p_player_id IN NUMBER) IS
+        l_fan_id NUMBER;
+    BEGIN
+        SELECT fan_id INTO l_fan_id FROM app_users
+         WHERE user_id=p_app_user_id AND is_active='Y' AND fan_id IS NOT NULL;
+        DELETE FROM fan_player_favorites WHERE fan_id=l_fan_id AND player_id=p_player_id;
+        IF SQL%ROWCOUNT=0 THEN RAISE_APPLICATION_ERROR(-20127,'Игрок не найден в избранном.'); END IF;
+    END;
+
+    PROCEDURE admin_players(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT player_id,first_name,last_name,position,jersey_number,birth_date,
+                   country,height_cm,weight_kg,is_active FROM dim_player
+             ORDER BY last_name,first_name;
+    END;
+
+    PROCEDURE admin_matches(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT m.match_id,m.match_date,m.opponent_name,m.stadium_id,st.name AS stadium,
+                   m.is_home,m.match_status,m.goals_for,m.goals_against
+              FROM dim_match m JOIN dim_stadium st ON st.stadium_id=m.stadium_id
+             ORDER BY m.match_date DESC;
+    END;
+
+    PROCEDURE admin_tickets(p_match_id IN NUMBER, p_status IN VARCHAR2,
+        p_page IN NUMBER, p_page_size IN NUMBER, p_result OUT SYS_REFCURSOR) IS
+        l_page NUMBER:=GREATEST(NVL(p_page,1),1);
+        l_size NUMBER:=LEAST(GREATEST(NVL(p_page_size,50),1),200);
+    BEGIN
+        OPEN p_result FOR
+            SELECT * FROM (
+                SELECT ROW_NUMBER() OVER(ORDER BY t.ticket_id DESC) rn,
+                       t.ticket_id,t.sector_id,m.match_id,m.match_date,m.opponent_name,
+                       s.sector_code,t.seat_row,t.seat_number,t.price,t.status,
+                       t.reserved_until,t.fan_id,t.reserved_by
+                  FROM tickets t JOIN dim_match m ON m.match_id=t.match_id
+                  JOIN dim_sector s ON s.sector_id=t.sector_id
+                 WHERE (p_match_id IS NULL OR t.match_id=p_match_id)
+                   AND (p_status IS NULL OR t.status=UPPER(p_status))
+            ) WHERE rn BETWEEN ((l_page-1)*l_size+1) AND (l_page*l_size)
+             ORDER BY rn;
+    END;
+
+    PROCEDURE admin_merch(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR SELECT merch_id,name,category,price,description,is_active
+          FROM dim_merch ORDER BY category,name;
+    END;
+
+    PROCEDURE list_fans(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR SELECT fan_id,first_name,last_name,email FROM dim_fan ORDER BY last_name,first_name;
+    END;
+
+    PROCEDURE add_player(p_first_name IN VARCHAR2, p_last_name IN VARCHAR2,
+        p_position IN VARCHAR2, p_jersey_number IN NUMBER, p_birth_date IN DATE,
+        p_country IN VARCHAR2, p_height_cm IN NUMBER, p_weight_kg IN NUMBER,
+        p_player_id OUT NUMBER) IS
+    BEGIN
+        pkg_admin_api.add_player(p_first_name,p_last_name,p_position,p_jersey_number,
+            p_birth_date,p_country,p_height_cm,p_weight_kg,p_player_id);
+    END;
+
+    PROCEDURE update_player(p_player_id IN NUMBER, p_first_name IN VARCHAR2,
+        p_last_name IN VARCHAR2, p_position IN VARCHAR2, p_jersey_number IN NUMBER,
+        p_birth_date IN DATE, p_country IN VARCHAR2, p_height_cm IN NUMBER,
+        p_weight_kg IN NUMBER, p_is_active IN CHAR) IS
+    BEGIN
+        pkg_admin_api.update_player(p_player_id,p_first_name,p_last_name,p_position,
+            p_jersey_number,p_birth_date,p_country,p_height_cm,p_weight_kg,p_is_active);
+    END;
+
+    PROCEDURE delete_player(p_player_id IN NUMBER) IS
+    BEGIN pkg_admin_api.delete_player(p_player_id); END;
+
+    PROCEDURE add_match(p_match_date IN DATE, p_opponent_name IN VARCHAR2,
+        p_stadium_id IN NUMBER, p_is_home IN CHAR, p_match_id OUT NUMBER) IS
+    BEGIN pkg_admin_api.add_match(p_match_date,p_opponent_name,p_stadium_id,p_is_home,p_match_id); END;
+
+    PROCEDURE update_match(p_match_id IN NUMBER, p_match_date IN DATE,
+        p_opponent_name IN VARCHAR2, p_stadium_id IN NUMBER, p_is_home IN CHAR,
+        p_match_status IN VARCHAR2, p_goals_for IN NUMBER, p_goals_against IN NUMBER) IS
+    BEGIN
+        pkg_admin_api.update_match(p_match_id,p_match_date,p_opponent_name,p_stadium_id,
+            p_is_home,p_match_status,p_goals_for,p_goals_against);
+    END;
+
+    PROCEDURE delete_match(p_match_id IN NUMBER) IS
+    BEGIN pkg_admin_api.delete_match(p_match_id); END;
+
+    PROCEDURE add_ticket(p_match_id IN NUMBER, p_sector_id IN NUMBER,
+        p_seat_row IN NUMBER, p_seat_number IN NUMBER, p_price IN NUMBER,
+        p_ticket_id OUT NUMBER) IS
+    BEGIN pkg_admin_api.add_ticket(p_match_id,p_sector_id,p_seat_row,p_seat_number,p_price,p_ticket_id); END;
+
+    PROCEDURE update_ticket(p_ticket_id IN NUMBER, p_seat_row IN NUMBER,
+        p_seat_number IN NUMBER, p_price IN NUMBER) IS
+        l_status VARCHAR2(10);
+    BEGIN
+        SELECT status INTO l_status FROM tickets WHERE ticket_id=p_ticket_id FOR UPDATE;
+        IF l_status NOT IN ('FREE','RETURNED') THEN
+            RAISE_APPLICATION_ERROR(-20128,'Редактировать можно только свободный или возвращённый билет.');
+        END IF;
+        UPDATE tickets SET seat_row=p_seat_row,seat_number=p_seat_number,price=p_price
+         WHERE ticket_id=p_ticket_id;
+    EXCEPTION WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20129,'Билет не найден.');
+    END;
+
+    PROCEDURE delete_ticket(p_ticket_id IN NUMBER) IS
+        l_status VARCHAR2(10);
+    BEGIN
+        SELECT status INTO l_status FROM tickets WHERE ticket_id=p_ticket_id FOR UPDATE;
+        IF l_status NOT IN ('FREE','RETURNED') THEN
+            RAISE_APPLICATION_ERROR(-20130,'Удалять можно только свободный или возвращённый билет.');
+        END IF;
+        DELETE FROM tickets WHERE ticket_id=p_ticket_id;
+    EXCEPTION WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20129,'Билет не найден.');
+    END;
+
+    PROCEDURE sell_ticket(p_ticket_id IN NUMBER, p_fan_id IN NUMBER) IS
+    BEGIN pkg_admin_api.sell_ticket(p_ticket_id,p_fan_id); END;
+    PROCEDURE return_ticket(p_ticket_id IN NUMBER) IS
+    BEGIN pkg_admin_api.return_ticket(p_ticket_id); END;
+    PROCEDURE release_expired(p_released_count OUT NUMBER) IS
+    BEGIN pkg_admin_api.release_expired_reservations(p_released_count); END;
+
+    PROCEDURE add_merch(p_name IN VARCHAR2, p_category IN VARCHAR2,
+        p_price IN NUMBER, p_description IN VARCHAR2, p_merch_id OUT NUMBER) IS
+    BEGIN pkg_admin_api.add_merch(p_name,p_category,p_price,p_description,p_merch_id); END;
+
+    PROCEDURE update_merch(p_merch_id IN NUMBER, p_name IN VARCHAR2,
+        p_category IN VARCHAR2, p_price IN NUMBER, p_description IN VARCHAR2,
+        p_is_active IN CHAR) IS
+    BEGIN pkg_admin_api.update_merch(p_merch_id,p_name,p_category,p_price,p_description,p_is_active); END;
+    PROCEDURE delete_merch(p_merch_id IN NUMBER) IS
+    BEGIN pkg_admin_api.delete_merch(p_merch_id); END;
+
+    PROCEDURE app_users(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT user_id,username,email,role,is_active,created_at
+              FROM app_users ORDER BY created_at DESC,user_id DESC;
+    END;
+    PROCEDURE change_user_role(p_user_id IN NUMBER, p_role IN VARCHAR2) IS
+    BEGIN pkg_security_api.change_app_user_role(p_user_id,p_role); END;
+    PROCEDURE set_user_active(p_user_id IN NUMBER, p_is_active IN CHAR) IS
+    BEGIN pkg_security_api.set_app_user_active(p_user_id,p_is_active); END;
+
+    PROCEDURE olap_summary(p_date_from IN DATE, p_date_to IN DATE,
+        p_sold_count OUT NUMBER, p_revenue OUT NUMBER, p_merch_revenue OUT NUMBER) IS
+    BEGIN
+        SELECT COUNT(*),NVL(SUM(t.price),0)
+          INTO p_sold_count,p_revenue
+          FROM tickets t JOIN dim_time d ON d.time_id=t.sale_time_id
+         WHERE t.status='SOLD'
+           AND (p_date_from IS NULL OR d.full_date>=TRUNC(p_date_from))
+           AND (p_date_to IS NULL OR d.full_date<TRUNC(p_date_to)+1);
+        SELECT NVL(SUM(o.total_amount),0) INTO p_merch_revenue
+          FROM merch_orders o JOIN dim_time d ON d.time_id=o.time_id
+         WHERE o.status='COMPLETED'
+           AND (p_date_from IS NULL OR d.full_date>=TRUNC(p_date_from))
+           AND (p_date_to IS NULL OR d.full_date<TRUNC(p_date_to)+1);
+    END;
+
+    PROCEDURE olap_sales_rollup(p_date_from IN DATE, p_date_to IN DATE,
+        p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT CASE
+                     WHEN GROUPING(d.season)=1 THEN 'ВСЕГО'
+                     WHEN GROUPING(d.year_num)=1 THEN 'Сезон '||d.season
+                     WHEN GROUPING(d.month_num)=1 THEN TO_CHAR(d.year_num)||' год — всего'
+                     ELSE TO_CHAR(d.year_num)||'-'||LPAD(d.month_num,2,'0')||' / '||TRIM(d.month_name)
+                   END AS period_label,
+                   GROUPING_ID(d.season,d.year_num,d.month_num,d.month_name) AS grouping_level,
+                   COUNT(*) AS tickets_sold,NVL(SUM(t.price),0) AS revenue
+              FROM tickets t JOIN dim_time d ON d.time_id=t.sale_time_id
+             WHERE t.status='SOLD'
+               AND (p_date_from IS NULL OR d.full_date>=TRUNC(p_date_from))
+               AND (p_date_to IS NULL OR d.full_date<TRUNC(p_date_to)+1)
+             GROUP BY ROLLUP(d.season,d.year_num,d.month_num,d.month_name)
+             ORDER BY GROUPING_ID(d.season,d.year_num,d.month_num,d.month_name),
+                      d.season,d.year_num,d.month_num;
+    END;
+
+    PROCEDURE olap_sales_cube(p_date_from IN DATE, p_date_to IN DATE,
+        p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT NVL(d.season,'Все сезоны') AS season,
+                   NVL(s.category,'Все категории') AS sector_category,
+                   GROUPING_ID(d.season,s.category) AS grouping_level,
+                   COUNT(*) AS tickets_sold,NVL(SUM(t.price),0) AS revenue
+              FROM tickets t JOIN dim_time d ON d.time_id=t.sale_time_id
+              JOIN dim_sector s ON s.sector_id=t.sector_id
+             WHERE t.status='SOLD'
+               AND (p_date_from IS NULL OR d.full_date>=TRUNC(p_date_from))
+               AND (p_date_to IS NULL OR d.full_date<TRUNC(p_date_to)+1)
+             GROUP BY CUBE(d.season,s.category)
+             ORDER BY GROUPING_ID(d.season,s.category),d.season,s.category;
+    END;
+
+    PROCEDURE olap_players(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT p.player_id,p.first_name,p.last_name,p.position,
+                   NVL(f.fans_count,0) AS fans_count,
+                   NVL(s.matches_count,0) AS matches_count,
+                   NVL(s.goals_total,0) AS goals_total,
+                   NVL(s.assists_total,0) AS assists_total,
+                   NVL(s.points_total,0) AS points_total
+              FROM dim_player p
+              LEFT JOIN (SELECT player_id,COUNT(DISTINCT fan_id) fans_count
+                           FROM fan_player_favorites GROUP BY player_id) f
+                ON f.player_id=p.player_id
+              LEFT JOIN (SELECT player_id,COUNT(*) matches_count,
+                                SUM(goals) goals_total,SUM(assists) assists_total,
+                                SUM(points) points_total
+                           FROM fact_match_stats GROUP BY player_id) s
+                ON s.player_id=p.player_id
+             ORDER BY NVL(f.fans_count,0) DESC,NVL(s.points_total,0) DESC,p.last_name;
+    END;
+
+    PROCEDURE import_players_json(p_json IN CLOB, p_inserted OUT NUMBER) IS
+    BEGIN
+        IF p_json IS NULL THEN
+            RAISE_APPLICATION_ERROR(-20131,'Пустой JSON-документ.');
+        END IF;
+        INSERT INTO dim_player(first_name,last_name,position,jersey_number,birth_date,
+            country,height_cm,weight_kg)
+        SELECT jt.first_name,jt.last_name,UPPER(jt.position),jt.jersey_number,
+               CASE WHEN jt.birth_date IS NOT NULL THEN TO_DATE(jt.birth_date,'YYYY-MM-DD') END,
+               jt.country,jt.height_cm,jt.weight_kg
+          FROM JSON_TABLE(p_json,'$.players[*]' COLUMNS(
+               first_name VARCHAR2(50) PATH '$.first_name',
+               last_name VARCHAR2(50) PATH '$.last_name',
+               position VARCHAR2(15) PATH '$.position',
+               jersey_number NUMBER PATH '$.jersey_number' NULL ON ERROR,
+               birth_date VARCHAR2(10) PATH '$.birth_date' NULL ON ERROR,
+               country VARCHAR2(50) PATH '$.country' NULL ON ERROR,
+               height_cm NUMBER PATH '$.height_cm' NULL ON ERROR,
+               weight_kg NUMBER PATH '$.weight_kg' NULL ON ERROR)) jt;
+        p_inserted:=SQL%ROWCOUNT;
+    END;
+
+    PROCEDURE export_players_json(p_json OUT CLOB) IS
+    BEGIN
+        SELECT JSON_OBJECT('players' VALUE (
+                   SELECT JSON_ARRAYAGG(JSON_OBJECT(
+                       'player_id' VALUE player_id,'first_name' VALUE first_name,
+                       'last_name' VALUE last_name,'position' VALUE position,
+                       'jersey_number' VALUE jersey_number,
+                       'birth_date' VALUE CASE WHEN birth_date IS NOT NULL THEN TO_CHAR(birth_date,'YYYY-MM-DD') END,
+                       'country' VALUE country,'height_cm' VALUE height_cm,
+                       'weight_kg' VALUE weight_kg,'is_active' VALUE is_active
+                       NULL ON NULL RETURNING CLOB) RETURNING CLOB)
+                     FROM dim_player) FORMAT JSON RETURNING CLOB)
+          INTO p_json FROM dual;
+    END;
+END pkg_web_api;
+/
+
+SHOW ERRORS PACKAGE pkg_web_api
+SHOW ERRORS PACKAGE BODY pkg_web_api
+
+-- Complete the seeded demo match with 10,000 physical seats (2 sectors x 5,000).
+-- Existing sample rows are preserved; duplicate seats are skipped.
+DECLARE
+    l_match_id NUMBER;
+    l_sector_a NUMBER;
+    l_sector_b NUMBER;
+BEGIN
+    BEGIN
+        SELECT match_id INTO l_match_id FROM dim_match
+         WHERE opponent_name=UNISTR('\0414\0435\043C\043E\043D\0441\0442\0440\0430\0446\0438\043E\043D\043D\044B\0439 \0441\043E\043F\0435\0440\043D\0438\043A') AND ROWNUM=1;
+        SELECT MIN(sector_id),MAX(sector_id) INTO l_sector_a,l_sector_b
+          FROM dim_sector WHERE stadium_id=(SELECT stadium_id FROM dim_match WHERE match_id=l_match_id);
+        IF l_sector_a IS NOT NULL AND l_sector_b IS NOT NULL AND l_sector_a<>l_sector_b THEN
+            INSERT INTO tickets(match_id,sector_id,seat_row,seat_number,price,status)
+            SELECT l_match_id,l_sector_a,CEIL(q.n/100),MOD(q.n-1,100)+1,45,'FREE'
+              FROM (SELECT LEVEL n FROM dual CONNECT BY LEVEL<=5000) q
+             WHERE NOT EXISTS (SELECT 1 FROM tickets t WHERE t.match_id=l_match_id
+                    AND t.sector_id=l_sector_a AND t.seat_row=CEIL(q.n/100)
+                    AND t.seat_number=MOD(q.n-1,100)+1);
+            INSERT INTO tickets(match_id,sector_id,seat_row,seat_number,price,status)
+            SELECT l_match_id,l_sector_b,CEIL(q.n/100),MOD(q.n-1,100)+1,55,'FREE'
+              FROM (SELECT LEVEL n FROM dual CONNECT BY LEVEL<=5000) q
+             WHERE NOT EXISTS (SELECT 1 FROM tickets t WHERE t.match_id=l_match_id
+                    AND t.sector_id=l_sector_b AND t.seat_row=CEIL(q.n/100)
+                    AND t.seat_number=MOD(q.n-1,100)+1);
+        END IF;
+        DBMS_OUTPUT.PUT_LINE('Демонстрационная схема мест подготовлена; MATCH_ID='||l_match_id);
+    EXCEPTION WHEN NO_DATA_FOUND THEN
+        DBMS_OUTPUT.PUT_LINE('Демо-матч не найден; пропуск генерации 10 000 мест.');
+    END;
+    COMMIT;
+END;
+/
+
+PROMPT PKG_WEB_API создан. Следующий шаг: выполнить db/02_create_web_user.sql от SYS в PDB.
+
+
+================================================================================
+FILE: HK_DINAMO_Node_App\db\02_create_web_user.sql
+================================================================================
+-- Выполнять от SYS (SYSDBA) в пользовательской PDB, НЕ в CDB$ROOT.
+-- Перед запуском замени пароль HK_WEB_APP на собственный и такой же укажи в .env.
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+SET ECHO ON
+
+-- Для повторного запуска существующая учётная запись не удаляется.
+DECLARE
+    l_count NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO l_count FROM all_users WHERE username='HK_WEB_APP';
+    IF l_count=0 THEN
+        EXECUTE IMMEDIATE 'CREATE USER HK_WEB_APP IDENTIFIED BY "ChangeMe_WebApp_19c!" DEFAULT TABLESPACE USERS TEMPORARY TABLESPACE TEMP';
+    ELSE
+        EXECUTE IMMEDIATE 'ALTER USER HK_WEB_APP IDENTIFIED BY "ChangeMe_WebApp_19c!" ACCOUNT UNLOCK';
+    END IF;
+END;
+/
+GRANT CREATE SESSION TO HK_WEB_APP;
+GRANT EXECUTE ON HK_DINAMO.PKG_WEB_API TO HK_WEB_APP;
+
+PROMPT HK_WEB_APP создан/обновлён. У него есть CREATE SESSION и EXECUTE только на HK_DINAMO.PKG_WEB_API.
+
+
+================================================================================
+FILE: HK_DINAMO_Node_App\db\03_verify_web_app.sql
+================================================================================
+-- Проверка расширения веб-приложения. Выполнять от HK_DINAMO в той же PDB.
+SET LINESIZE 180
+SET PAGESIZE 100
+PROMPT === Статус объектов PKG_WEB_API ===
+SELECT object_name, object_type, status
+  FROM user_objects
+ WHERE object_name = 'PKG_WEB_API'
+ ORDER BY object_type;
+PROMPT === Ошибки компиляции PKG_WEB_API ===
+SELECT line, position, text
+  FROM user_errors
+ WHERE name = 'PKG_WEB_API'
+ ORDER BY sequence;
+PROMPT === Наличие demo-матча ===
+SELECT match_id, match_date, opponent_name, stadium_id
+  FROM dim_match
+ WHERE match_id = 1;
+PROMPT === Количество мест на демонстрационный матч ===
+SELECT COUNT(*) AS demo_seats,
+       COUNT(DISTINCT sector_id) AS sectors,
+       COUNT(DISTINCT seat_row) AS rows_count
+  FROM tickets t
+  JOIN dim_match m ON m.match_id=t.match_id
+ WHERE m.match_id = 1;
+PROMPT === Билеты по статусам на demo-матч ===
+SELECT t.status, COUNT(*) AS tickets_count
+  FROM tickets t
+  JOIN dim_match m ON m.match_id=t.match_id
+ WHERE m.match_id = 1
+ GROUP BY t.status
+ ORDER BY t.status;
+PROMPT === Технический пользователь ===
+SELECT username
+  FROM all_users
+ WHERE username = 'HK_WEB_APP';
+
+
+================================================================================
+FILE: HK_DINAMO_Node_App\db\04_repair_demo_data.sql
+================================================================================
+-- ============================================================================
+-- Восстановление демонстрационного матча и подготовка 10 000 мест.
+-- Выполнять от HK_DINAMO в PDB ORCLPDB1 (SQL Developer, F5).
+--
+-- Основание: при диагностике обнаружен матч MATCH_ID=1 на 2026-11-20,
+-- арена STADIUM_ID=1 и два сектора A/B по 5 000 мест, но текстовые названия
+-- не совпадали с Unicode-литералами в PKG_WEB_API. Поэтому генератор мест
+-- пропустил матч. Скрипт исправляет только этот демонстрационный матч и
+-- названия его арены, затем добавляет только отсутствующие места.
+-- Он НЕ удаляет строки, не меняет 100 000 тестовых билетов и не пересоздаёт
+-- объекты схемы. Повторный запуск безопасен: дубли мест исключены.
+-- ============================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+SET SERVEROUTPUT ON
+SET DEFINE OFF
+
+DECLARE
+    c_demo_match_id CONSTANT NUMBER := 1;
+    c_demo_date     CONSTANT DATE := DATE '2026-11-20';
+    l_stadium_id    NUMBER;
+    l_sector_a      NUMBER;
+    l_sector_b      NUMBER;
+    l_match_count   NUMBER;
+    l_added_a       NUMBER := 0;
+    l_added_b       NUMBER := 0;
+    l_total         NUMBER;
+BEGIN
+    -- Не затрагиваем никакой матч, кроме подтверждённого диагностикой MATCH_ID=1.
+    SELECT COUNT(*)
+      INTO l_match_count
+      FROM dim_match
+     WHERE match_id = c_demo_match_id
+       AND TRUNC(match_date) = c_demo_date
+       AND match_status <> 'CANCELLED';
+
+    IF l_match_count <> 1 THEN
+        RAISE_APPLICATION_ERROR(-20201,
+          'Ожидаемый демонстрационный матч MATCH_ID=1 на 2026-11-20 не найден или неоднозначен. Изменения не внесены.');
+    END IF;
+
+    SELECT stadium_id
+      INTO l_stadium_id
+      FROM dim_match
+     WHERE match_id = c_demo_match_id;
+
+    -- Исправляем Unicode-названия, если они были повреждены при первоначальном
+    -- запуске SQL*Plus. UNISTR не зависит от кодовой страницы файла/терминала.
+    UPDATE dim_stadium
+       SET name = UNISTR('\041C\0438\043D\0441\043A-\0410\0440\0435\043D\0430'),
+           city = UNISTR('\041C\0438\043D\0441\043A')
+     WHERE stadium_id = l_stadium_id;
+
+    UPDATE dim_match
+       SET opponent_name = UNISTR('\0414\0435\043C\043E\043D\0441\0442\0440\0430\0446\0438\043E\043D\043D\044B\0439 \0441\043E\043F\0435\0440\043D\0438\043A')
+     WHERE match_id = c_demo_match_id;
+
+    SELECT sector_id
+      INTO l_sector_a
+      FROM dim_sector
+     WHERE stadium_id = l_stadium_id
+       AND sector_code = 'A';
+
+    SELECT sector_id
+      INTO l_sector_b
+      FROM dim_sector
+     WHERE stadium_id = l_stadium_id
+       AND sector_code = 'B';
+
+    -- На каждый сектор: 50 рядов по 100 мест. Уже существующие 4 примера
+    -- билетов сохраняются со своими FREE/RESERVED/SOLD/RETURNED статусами.
+    INSERT INTO tickets(match_id, sector_id, seat_row, seat_number, price, status)
+    SELECT c_demo_match_id, l_sector_a,
+           CEIL(q.n / 100), MOD(q.n - 1, 100) + 1, 45, 'FREE'
+      FROM (SELECT LEVEL AS n FROM dual CONNECT BY LEVEL <= 5000) q
+     WHERE NOT EXISTS (
+           SELECT 1 FROM tickets t
+            WHERE t.match_id = c_demo_match_id
+              AND t.sector_id = l_sector_a
+              AND t.seat_row = CEIL(q.n / 100)
+              AND t.seat_number = MOD(q.n - 1, 100) + 1
+     );
+    l_added_a := SQL%ROWCOUNT;
+
+    INSERT INTO tickets(match_id, sector_id, seat_row, seat_number, price, status)
+    SELECT c_demo_match_id, l_sector_b,
+           CEIL(q.n / 100), MOD(q.n - 1, 100) + 1, 55, 'FREE'
+      FROM (SELECT LEVEL AS n FROM dual CONNECT BY LEVEL <= 5000) q
+     WHERE NOT EXISTS (
+           SELECT 1 FROM tickets t
+            WHERE t.match_id = c_demo_match_id
+              AND t.sector_id = l_sector_b
+              AND t.seat_row = CEIL(q.n / 100)
+              AND t.seat_number = MOD(q.n - 1, 100) + 1
+     );
+    l_added_b := SQL%ROWCOUNT;
+
+    SELECT COUNT(*)
+      INTO l_total
+      FROM tickets
+     WHERE match_id = c_demo_match_id
+       AND sector_id IN (l_sector_a, l_sector_b);
+
+    IF l_total <> 10000 THEN
+        RAISE_APPLICATION_ERROR(-20202,
+          'После подготовки ожидалось ровно 10000 мест; фактически: ' || l_total);
+    END IF;
+
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Демонстрационный матч: MATCH_ID=' || c_demo_match_id);
+    DBMS_OUTPUT.PUT_LINE('Добавлено мест в сектор A: ' || l_added_a);
+    DBMS_OUTPUT.PUT_LINE('Добавлено мест в сектор B: ' || l_added_b);
+    DBMS_OUTPUT.PUT_LINE('Всего мест в демонстрационном матче: ' || l_total);
+    DBMS_OUTPUT.PUT_LINE('100 000 тестовых билетов не изменялись.');
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END;
+/
+
+PROMPT === Проверка демонстрационного матча и мест ===
+SELECT m.match_id,
+       TO_CHAR(m.match_date, 'YYYY-MM-DD') AS match_date,
+       m.opponent_name,
+       s.name AS stadium,
+       COUNT(t.ticket_id) AS demo_seats,
+       COUNT(DISTINCT t.sector_id) AS sectors,
+       COUNT(DISTINCT t.seat_row) AS distinct_rows
+  FROM dim_match m
+  JOIN dim_stadium s ON s.stadium_id = m.stadium_id
+  LEFT JOIN tickets t ON t.match_id = m.match_id
+ WHERE m.match_id = 1
+ GROUP BY m.match_id, m.match_date, m.opponent_name, s.name;
+
+SELECT t.status, COUNT(*) AS tickets_count
+  FROM tickets t
+ WHERE t.match_id = 1
+ GROUP BY t.status
+ ORDER BY t.status;
+
+
+================================================================================
+FILE: HK_DINAMO_Node_App\db\05_check_seed_counts.sql
+================================================================================
+-- Проверка количества основных данных. Выполнять от HK_DINAMO, PDB ORCLPDB1.
+-- Используется внешний SELECT, чтобы корректно сортировать UNION ALL в Oracle.
+SET LINESIZE 180
+SET PAGESIZE 100
+SELECT table_name, row_count
+  FROM (
+        SELECT 'DIM_TIME' AS table_name, COUNT(*) AS row_count FROM dim_time
+        UNION ALL SELECT 'DIM_STADIUM', COUNT(*) FROM dim_stadium
+        UNION ALL SELECT 'DIM_SECTOR', COUNT(*) FROM dim_sector
+        UNION ALL SELECT 'DIM_PLAYER', COUNT(*) FROM dim_player
+        UNION ALL SELECT 'DIM_FAN', COUNT(*) FROM dim_fan
+        UNION ALL SELECT 'DIM_MATCH', COUNT(*) FROM dim_match
+        UNION ALL SELECT 'DIM_MERCH', COUNT(*) FROM dim_merch
+        UNION ALL SELECT 'TICKETS', COUNT(*) FROM tickets
+        UNION ALL SELECT 'FACT_MATCH_STATS', COUNT(*) FROM fact_match_stats
+        UNION ALL SELECT 'APP_USERS', COUNT(*) FROM app_users
+        UNION ALL SELECT 'FAN_PLAYER_FAVORITES', COUNT(*) FROM fan_player_favorites
+        UNION ALL SELECT 'MERCH_ORDERS', COUNT(*) FROM merch_orders
+       ) q
+ ORDER BY table_name;
+
+PROMPT === Unicode-содержимое демо-строк (ASCIISTR) ===
+SELECT m.match_id,
+       ASCIISTR(m.opponent_name) AS opponent_ascii,
+       ASCIISTR(s.name) AS stadium_ascii,
+       ASCIISTR(s.city) AS city_ascii
+  FROM dim_match m
+  JOIN dim_stadium s ON s.stadium_id = m.stadium_id
+ WHERE m.match_id = 1;
+
+PROMPT === Технический пользователь ===
+SELECT username
+  FROM all_users
+ WHERE username = 'HK_WEB_APP';
+
+
+================================================================================
+FILE: HK_DINAMO_Node_App\db\06_unicode_diagnostic.sql
+================================================================================
+-- Проверка Unicode в Oracle. Выполнять от HK_DINAMO в PDB.
+SET LINESIZE 180
+SET PAGESIZE 80
+PROMPT === Character sets ===
+SELECT parameter, value
+  FROM nls_database_parameters
+ WHERE parameter IN ('NLS_CHARACTERSET','NLS_NCHAR_CHARACTERSET')
+ ORDER BY parameter;
+PROMPT === Unicode test literal (should display: Минск-Арена) ===
+SELECT UNISTR('\041C\0438\043D\0441\043A-\0410\0440\0435\043D\0430') AS unicode_test,
+       ASCIISTR(UNISTR('\041C\0438\043D\0441\043A-\0410\0440\0435\043D\0430')) AS unicode_codepoints
+  FROM dual;
+PROMPT === Stored demo values ===
+SELECT match_id, ASCIISTR(opponent_name) AS opponent_codepoints
+  FROM dim_match
+ WHERE match_id=1;
+SELECT stadium_id, ASCIISTR(name) AS stadium_codepoints,
+       ASCIISTR(city) AS city_codepoints
+  FROM dim_stadium
+ WHERE stadium_id=(SELECT stadium_id FROM dim_match WHERE match_id=1);
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\00_sys\00_create_users_roles.sql
+================================================================================
+-- =====================================================================
+-- Создание владельца схемы и трёх Oracle-пользователей для тестирования.
+-- Запускать от SYS в нужной PDB (не в CDB$ROOT).
+-- Перед запуском замените пароли CHANGE_ME_* на собственные.
+-- Скрипт рассчитан на первое развёртывание; при повторном запуске
+-- уже созданные пользователи/роли вызовут ORA-01920/ORA-01921.
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+SET ECHO OFF
+
+-- Владелец объектов базы данных.
+CREATE USER HK_DINAMO IDENTIFIED BY "ChangeMe_Dinamo_19c!"
+  DEFAULT TABLESPACE USERS
+  TEMPORARY TABLESPACE TEMP
+  QUOTA UNLIMITED ON USERS;
+GRANT CREATE SESSION, CREATE TABLE, CREATE VIEW, CREATE PROCEDURE,
+      CREATE TRIGGER, CREATE SEQUENCE, CREATE TYPE
+TO HK_DINAMO;
+
+-- Отдельные Oracle-учётные записи для проверки разграничения доступа.
+CREATE USER HK_MAIN_ADMIN IDENTIFIED BY "ChangeMe_MainAdmin_19c!"
+  DEFAULT TABLESPACE USERS TEMPORARY TABLESPACE TEMP;
+CREATE USER HK_ADMIN IDENTIFIED BY "ChangeMe_Admin_19c!"
+  DEFAULT TABLESPACE USERS TEMPORARY TABLESPACE TEMP;
+CREATE USER HK_USER IDENTIFIED BY "ChangeMe_User_19c!"
+  DEFAULT TABLESPACE USERS TEMPORARY TABLESPACE TEMP;
+
+GRANT CREATE SESSION TO HK_MAIN_ADMIN, HK_ADMIN, HK_USER;
+
+-- Роли Oracle. Привилегии на таблицы напрямую этим ролям не выдаются.
+CREATE ROLE HK_USER_ROLE;
+CREATE ROLE HK_ADMIN_ROLE;
+CREATE ROLE HK_MAIN_ADMIN_ROLE;
+
+-- Администратор получает пользовательские возможности; главный администратор
+-- наследует административные и пользовательские возможности.
+GRANT HK_USER_ROLE TO HK_ADMIN_ROLE;
+GRANT HK_ADMIN_ROLE TO HK_MAIN_ADMIN_ROLE;
+GRANT HK_USER_ROLE TO HK_USER;
+GRANT HK_ADMIN_ROLE TO HK_ADMIN;
+GRANT HK_MAIN_ADMIN_ROLE TO HK_MAIN_ADMIN;
+
+-- Каталог для JSON-файлов. Физический каталог должен существовать
+-- внутри контейнера и быть доступен ОС-пользователю oracle.
+CREATE OR REPLACE DIRECTORY HK_JSON_DIR AS '/opt/oracle/json';
+GRANT READ, WRITE ON DIRECTORY HK_JSON_DIR TO HK_DINAMO;
+
+-- Прямые EXECUTE-привилегии владельцу необходимы для компиляции
+-- хранимого кода, который обращается к системным пакетам.
+GRANT EXECUTE ON SYS.UTL_FILE TO HK_DINAMO;
+GRANT EXECUTE ON SYS.DBMS_LOB TO HK_DINAMO;
+GRANT EXECUTE ON SYS.DBMS_STATS TO HK_DINAMO;
+
+PROMPT =============================================================
+PROMPT Созданы HK_DINAMO, HK_MAIN_ADMIN, HK_ADMIN, HK_USER и роли.
+PROMPT Смените пароли и продолжите установку от HK_DINAMO.
+PROMPT =============================================================
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\01_schema\01_tables.sql
+================================================================================
+-- =====================================================================
+-- Таблицы проекта «База данных хоккейного клуба Динамо-Минск».
+-- Oracle Database 19c. Выполнять от HK_DINAMO.
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+
+-- 1. Календарное измерение. TIME_ID имеет формат YYYYMMDD.
+CREATE TABLE dim_time (
+    time_id       NUMBER(8) CONSTRAINT pk_dim_time PRIMARY KEY,
+    full_date     DATE NOT NULL,
+    day_of_week   VARCHAR2(20 CHAR) NOT NULL,
+    day_num       NUMBER(2) NOT NULL,
+    month_num     NUMBER(2) NOT NULL,
+    month_name    VARCHAR2(20 CHAR) NOT NULL,
+    quarter_num   NUMBER(1) NOT NULL,
+    year_num      NUMBER(4) NOT NULL,
+    season        VARCHAR2(9 CHAR) NOT NULL,
+    CONSTRAINT uq_dim_time_date UNIQUE (full_date),
+    CONSTRAINT ck_dim_time_day CHECK (day_num BETWEEN 1 AND 31),
+    CONSTRAINT ck_dim_time_month CHECK (month_num BETWEEN 1 AND 12),
+    CONSTRAINT ck_dim_time_quarter CHECK (quarter_num BETWEEN 1 AND 4),
+    CONSTRAINT ck_dim_time_year CHECK (year_num BETWEEN 1900 AND 9999),
+    CONSTRAINT ck_dim_time_key CHECK (time_id = TO_NUMBER(TO_CHAR(full_date,'YYYYMMDD')))
+);
+COMMENT ON TABLE dim_time IS 'Календарное измерение для OLAP-анализа по датам и хоккейным сезонам';
+COMMENT ON COLUMN dim_time.time_id IS 'Ключ календарной даты в формате YYYYMMDD';
+COMMENT ON COLUMN dim_time.season IS 'Хоккейный сезон, например 2026/2027';
+
+-- 2. Справочник стадионов.
+CREATE TABLE dim_stadium (
+    stadium_id NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY
+               CONSTRAINT pk_dim_stadium PRIMARY KEY,
+    name       VARCHAR2(100 CHAR) NOT NULL,
+    city       VARCHAR2(50 CHAR) NOT NULL,
+    capacity   NUMBER(7) NOT NULL,
+    CONSTRAINT uq_dim_stadium_name_city UNIQUE (name, city),
+    CONSTRAINT ck_dim_stadium_capacity CHECK (capacity > 0)
+);
+COMMENT ON TABLE dim_stadium IS 'Справочник стадионов и арен';
+
+-- 3. Сектора стадионов.
+CREATE TABLE dim_sector (
+    sector_id   NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY
+                CONSTRAINT pk_dim_sector PRIMARY KEY,
+    stadium_id  NUMBER NOT NULL,
+    sector_code VARCHAR2(50 CHAR) NOT NULL,
+    category    VARCHAR2(20 CHAR) NOT NULL,
+    capacity    NUMBER(5) NOT NULL,
+    CONSTRAINT fk_sector_stadium FOREIGN KEY (stadium_id)
+        REFERENCES dim_stadium(stadium_id),
+    CONSTRAINT uq_sector_stadium_code UNIQUE (stadium_id, sector_code),
+    CONSTRAINT ck_dim_sector_capacity CHECK (capacity BETWEEN 1 AND 99999),
+    CONSTRAINT ck_dim_sector_category CHECK
+        (category IN ('VIP','STANDARD','FAN','GUEST','OTHER'))
+);
+COMMENT ON TABLE dim_sector IS 'Сектора стадионов с вместимостью и категорией';
+
+-- 4. Справочник игроков.
+CREATE TABLE dim_player (
+    player_id     NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY
+                  CONSTRAINT pk_dim_player PRIMARY KEY,
+    first_name    VARCHAR2(50 CHAR) NOT NULL,
+    last_name     VARCHAR2(50 CHAR) NOT NULL,
+    position      VARCHAR2(15 CHAR) NOT NULL,
+    jersey_number NUMBER(2),
+    birth_date    DATE,
+    country       VARCHAR2(50 CHAR),
+    height_cm     NUMBER(3),
+    weight_kg     NUMBER(3),
+    is_active     CHAR(1) DEFAULT 'Y' NOT NULL,
+    CONSTRAINT ck_dim_player_position CHECK
+        (position IN ('GOALTENDER','DEFENDER','FORWARD')),
+    CONSTRAINT ck_dim_player_jersey CHECK
+        (jersey_number IS NULL OR jersey_number BETWEEN 0 AND 99),
+    CONSTRAINT ck_dim_player_height CHECK
+        (height_cm IS NULL OR height_cm BETWEEN 100 AND 250),
+    CONSTRAINT ck_dim_player_weight CHECK
+        (weight_kg IS NULL OR weight_kg BETWEEN 30 AND 200),
+    CONSTRAINT ck_dim_player_active CHECK (is_active IN ('Y','N'))
+);
+COMMENT ON TABLE dim_player IS 'Справочник игроков хоккейного клуба';
+COMMENT ON COLUMN dim_player.position IS 'GOALTENDER — вратарь; DEFENDER — защитник; FORWARD — нападающий';
+COMMENT ON COLUMN dim_player.is_active IS 'Y — активный игрок; N — неактивный игрок';
+
+-- 5. Матчи клуба.
+CREATE TABLE dim_match (
+    match_id      NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY
+                  CONSTRAINT pk_dim_match PRIMARY KEY,
+    match_date    DATE NOT NULL,
+    time_id       NUMBER(8) NOT NULL,
+    opponent_name VARCHAR2(100 CHAR) NOT NULL,
+    stadium_id    NUMBER NOT NULL,
+    is_home       CHAR(1) NOT NULL,
+    goals_for     NUMBER(2),
+    goals_against NUMBER(2),
+    match_status  VARCHAR2(15 CHAR) DEFAULT 'SCHEDULED' NOT NULL,
+    CONSTRAINT fk_match_time FOREIGN KEY (time_id) REFERENCES dim_time(time_id),
+    CONSTRAINT fk_match_stadium FOREIGN KEY (stadium_id) REFERENCES dim_stadium(stadium_id),
+    CONSTRAINT ck_dim_match_home CHECK (is_home IN ('Y','N')),
+    CONSTRAINT ck_dim_match_goals CHECK
+       ((goals_for IS NULL AND goals_against IS NULL) OR
+        (goals_for IS NOT NULL AND goals_against IS NOT NULL AND
+         goals_for >= 0 AND goals_against >= 0)),
+    CONSTRAINT ck_dim_match_status CHECK
+       (match_status IN ('SCHEDULED','COMPLETED','CANCELLED')),
+    CONSTRAINT ck_dim_match_completed CHECK
+       (match_status <> 'COMPLETED' OR
+        (goals_for IS NOT NULL AND goals_against IS NOT NULL))
+);
+COMMENT ON TABLE dim_match IS 'Матчи: дата, соперник, арена, статус и итоговый счёт';
+
+-- 6. Болельщики и покупатели.
+CREATE TABLE dim_fan (
+    fan_id            NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY
+                      CONSTRAINT pk_dim_fan PRIMARY KEY,
+    first_name        VARCHAR2(50 CHAR) NOT NULL,
+    last_name         VARCHAR2(50 CHAR) NOT NULL,
+    email             VARCHAR2(100 CHAR),
+    phone             VARCHAR2(20 CHAR),
+    city              VARCHAR2(50 CHAR),
+    registration_date DATE DEFAULT SYSDATE NOT NULL,
+    CONSTRAINT uq_dim_fan_email UNIQUE (email)
+);
+COMMENT ON TABLE dim_fan IS 'Справочник болельщиков и покупателей';
+
+-- 7. Каталог клубной атрибутики.
+CREATE TABLE dim_merch (
+    merch_id    NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY
+                CONSTRAINT pk_dim_merch PRIMARY KEY,
+    name        VARCHAR2(100 CHAR) NOT NULL,
+    category    VARCHAR2(50 CHAR) NOT NULL,
+    price       NUMBER(10,2) NOT NULL,
+    description VARCHAR2(500 CHAR),
+    is_active   CHAR(1) DEFAULT 'Y' NOT NULL,
+    CONSTRAINT ck_dim_merch_price CHECK (price >= 0),
+    CONSTRAINT ck_dim_merch_active CHECK (is_active IN ('Y','N'))
+);
+COMMENT ON TABLE dim_merch IS 'Каталог товаров клубной атрибутики';
+
+-- 8. Билеты. Одна строка — одно место на конкретный матч.
+CREATE TABLE tickets (
+    ticket_id      NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY
+                   CONSTRAINT pk_tickets PRIMARY KEY,
+    match_id       NUMBER NOT NULL,
+    sector_id      NUMBER NOT NULL,
+    seat_row       NUMBER(3) NOT NULL,
+    seat_number    NUMBER(3) NOT NULL,
+    price          NUMBER(10,2) NOT NULL,
+    status         VARCHAR2(10 CHAR) DEFAULT 'FREE' NOT NULL,
+    fan_id         NUMBER,
+    sale_time_id   NUMBER(8),
+    reserved_by    NUMBER,
+    reserved_until DATE,
+    created_at     TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_at     TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT fk_ticket_match FOREIGN KEY (match_id) REFERENCES dim_match(match_id),
+    CONSTRAINT fk_ticket_sector FOREIGN KEY (sector_id) REFERENCES dim_sector(sector_id),
+    CONSTRAINT fk_ticket_fan FOREIGN KEY (fan_id) REFERENCES dim_fan(fan_id),
+    CONSTRAINT fk_ticket_sale_time FOREIGN KEY (sale_time_id) REFERENCES dim_time(time_id),
+    CONSTRAINT fk_ticket_reserved_by FOREIGN KEY (reserved_by) REFERENCES dim_fan(fan_id),
+    CONSTRAINT uq_ticket_seat UNIQUE (match_id, sector_id, seat_row, seat_number),
+    CONSTRAINT ck_ticket_seat CHECK (seat_row > 0 AND seat_number > 0),
+    CONSTRAINT ck_ticket_price CHECK (price >= 0),
+    CONSTRAINT ck_ticket_status CHECK (status IN ('FREE','RESERVED','SOLD','RETURNED')),
+    CONSTRAINT ck_ticket_state_fields CHECK (
+       (status = 'FREE' AND fan_id IS NULL AND sale_time_id IS NULL
+          AND reserved_by IS NULL AND reserved_until IS NULL)
+       OR
+       (status = 'RESERVED' AND fan_id IS NULL AND sale_time_id IS NULL
+          AND reserved_by IS NOT NULL AND reserved_until IS NOT NULL)
+       OR
+       (status = 'SOLD' AND fan_id IS NOT NULL AND sale_time_id IS NOT NULL
+          AND reserved_by IS NULL AND reserved_until IS NULL)
+       OR
+       (status = 'RETURNED' AND reserved_by IS NULL AND reserved_until IS NULL)
+    )
+);
+COMMENT ON TABLE tickets IS 'Билеты: учёт мест, продаж, возвратов и временного резервирования';
+COMMENT ON COLUMN tickets.status IS 'FREE — свободен; RESERVED — зарезервирован; SOLD — продан; RETURNED — возвращён';
+COMMENT ON COLUMN tickets.sale_time_id IS 'Дата продажи для анализа выручки по периодам';
+COMMENT ON COLUMN tickets.reserved_until IS 'Дата и время окончания резерва';
+
+-- 9. Продажи атрибутики. Одна строка — одна товарная позиция.
+CREATE TABLE merch_orders (
+    order_id     NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY
+                 CONSTRAINT pk_merch_orders PRIMARY KEY,
+    merch_id     NUMBER NOT NULL,
+    fan_id       NUMBER NOT NULL,
+    time_id      NUMBER(8) NOT NULL,
+    quantity     NUMBER(5) NOT NULL,
+    unit_price   NUMBER(10,2) NOT NULL,
+    total_amount NUMBER(12,2) GENERATED ALWAYS AS (quantity * unit_price) VIRTUAL,
+    status       VARCHAR2(20 CHAR) DEFAULT 'COMPLETED' NOT NULL,
+    CONSTRAINT fk_merch_order_merch FOREIGN KEY (merch_id) REFERENCES dim_merch(merch_id),
+    CONSTRAINT fk_merch_order_fan FOREIGN KEY (fan_id) REFERENCES dim_fan(fan_id),
+    CONSTRAINT fk_merch_order_time FOREIGN KEY (time_id) REFERENCES dim_time(time_id),
+    CONSTRAINT ck_merch_order_qty CHECK (quantity > 0),
+    CONSTRAINT ck_merch_order_price CHECK (unit_price >= 0),
+    CONSTRAINT ck_merch_order_status CHECK (status IN ('PENDING','COMPLETED','CANCELLED'))
+);
+COMMENT ON TABLE merch_orders IS 'Факты продаж атрибутики; одна строка — один вид товара в заказе';
+COMMENT ON COLUMN merch_orders.total_amount IS 'Виртуальный столбец: quantity * unit_price';
+
+-- 10. Статистика игроков по матчам.
+CREATE TABLE fact_match_stats (
+    stat_id         NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY
+                    CONSTRAINT pk_fact_match_stats PRIMARY KEY,
+    match_id        NUMBER NOT NULL,
+    player_id       NUMBER NOT NULL,
+    time_id         NUMBER(8) NOT NULL,
+    goals           NUMBER(2) DEFAULT 0 NOT NULL,
+    assists         NUMBER(2) DEFAULT 0 NOT NULL,
+    points          NUMBER(3) GENERATED ALWAYS AS (goals + assists) VIRTUAL,
+    penalty_minutes NUMBER(3) DEFAULT 0 NOT NULL,
+    plus_minus      NUMBER(3) DEFAULT 0 NOT NULL,
+    shots           NUMBER(3) DEFAULT 0 NOT NULL,
+    time_on_ice_sec NUMBER(5) DEFAULT 0 NOT NULL,
+    CONSTRAINT fk_stats_match FOREIGN KEY (match_id) REFERENCES dim_match(match_id),
+    CONSTRAINT fk_stats_player FOREIGN KEY (player_id) REFERENCES dim_player(player_id),
+    CONSTRAINT fk_stats_time FOREIGN KEY (time_id) REFERENCES dim_time(time_id),
+    CONSTRAINT uq_match_player UNIQUE (match_id, player_id),
+    CONSTRAINT ck_stats_goals CHECK (goals >= 0),
+    CONSTRAINT ck_stats_assists CHECK (assists >= 0),
+    CONSTRAINT ck_stats_penalty CHECK (penalty_minutes >= 0),
+    CONSTRAINT ck_stats_shots CHECK (shots >= 0),
+    CONSTRAINT ck_stats_ice_time CHECK (time_on_ice_sec >= 0)
+);
+COMMENT ON TABLE fact_match_stats IS 'Статистика игроков по матчам для анализа результативности';
+COMMENT ON COLUMN fact_match_stats.points IS 'Виртуальный столбец: голы плюс передачи';
+
+-- 11. Учётные записи приложения. FAN_ID связывает профиль пользователя
+-- приложения с записью болельщика для операций с билетами и избранным.
+CREATE TABLE app_users (
+    user_id       NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY
+                  CONSTRAINT pk_app_users PRIMARY KEY,
+    username      VARCHAR2(50 CHAR) NOT NULL,
+    password_hash VARCHAR2(200 CHAR) NOT NULL,
+    email         VARCHAR2(100 CHAR) NOT NULL,
+    role          VARCHAR2(20 CHAR) NOT NULL,
+    fan_id        NUMBER,
+    db_username   VARCHAR2(128 CHAR),
+    is_active     CHAR(1) DEFAULT 'Y' NOT NULL,
+    created_at    DATE DEFAULT SYSDATE NOT NULL,
+    CONSTRAINT fk_app_users_fan FOREIGN KEY (fan_id) REFERENCES dim_fan(fan_id),
+    CONSTRAINT uq_app_users_username UNIQUE (username),
+    CONSTRAINT uq_app_users_email UNIQUE (email),
+    CONSTRAINT uq_app_users_fan UNIQUE (fan_id),
+    CONSTRAINT uq_app_users_db_user UNIQUE (db_username),
+    CONSTRAINT ck_app_users_role CHECK (role IN ('MAIN_ADMIN','ADMIN','USER')),
+    CONSTRAINT ck_app_users_active CHECK (is_active IN ('Y','N'))
+);
+COMMENT ON TABLE app_users IS 'Прикладные учётные записи; не заменяют учётные записи Oracle';
+COMMENT ON COLUMN app_users.password_hash IS 'Хеш пароля, сформированный прикладной системой; открытый пароль не хранится';
+COMMENT ON COLUMN app_users.fan_id IS 'Необязательная связь прикладной учётной записи с профилем болельщика';
+COMMENT ON COLUMN app_users.db_username IS 'Необязательная привязка к Oracle-пользователю для проверки демонстрационного подключения';
+
+-- 12. Связь болельщиков с избранными игроками для оценки популярности.
+CREATE TABLE fan_player_favorites (
+    favorite_id NUMBER GENERATED BY DEFAULT ON NULL AS IDENTITY
+                CONSTRAINT pk_fan_player_favorites PRIMARY KEY,
+    fan_id      NUMBER NOT NULL,
+    player_id   NUMBER NOT NULL,
+    created_at  TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT fk_favorites_fan FOREIGN KEY (fan_id) REFERENCES dim_fan(fan_id),
+    CONSTRAINT fk_favorites_player FOREIGN KEY (player_id) REFERENCES dim_player(player_id),
+    CONSTRAINT uq_fan_player_favorite UNIQUE (fan_id, player_id)
+);
+COMMENT ON TABLE fan_player_favorites IS 'Избранные игроки; используется для оценки популярности';
+
+PROMPT Таблицы и ограничения созданы.
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\02_logic\02_triggers.sql
+================================================================================
+-- =====================================================================
+-- Триггеры контроля согласованности и автоматического заполнения дат.
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+
+CREATE OR REPLACE TRIGGER trg_dim_match_biu
+BEFORE INSERT OR UPDATE OF match_date, time_id ON dim_match
+FOR EACH ROW
+DECLARE
+    l_full_date DATE;
+BEGIN
+    SELECT full_date INTO l_full_date
+      FROM dim_time
+     WHERE time_id = :NEW.time_id;
+    IF TRUNC(l_full_date) <> TRUNC(:NEW.match_date) THEN
+        RAISE_APPLICATION_ERROR(-20001,
+            'Дата матча должна совпадать с датой календарного измерения DIM_TIME');
+    END IF;
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_tickets_biu
+BEFORE INSERT OR UPDATE ON tickets
+FOR EACH ROW
+DECLARE
+    l_match_stadium  NUMBER;
+    l_sector_stadium NUMBER;
+BEGIN
+    IF INSERTING THEN
+        :NEW.created_at := COALESCE(:NEW.created_at, SYSTIMESTAMP);
+        :NEW.updated_at := SYSTIMESTAMP;
+    ELSE
+        :NEW.created_at := :OLD.created_at;
+        :NEW.updated_at := SYSTIMESTAMP;
+
+        IF UPDATING('STATUS') AND :NEW.status <> :OLD.status THEN
+            IF NOT (
+                (:OLD.status = 'FREE'     AND :NEW.status IN ('RESERVED','SOLD')) OR
+                (:OLD.status = 'RESERVED' AND :NEW.status IN ('FREE','SOLD')) OR
+                (:OLD.status = 'SOLD'     AND :NEW.status = 'RETURNED') OR
+                (:OLD.status = 'RETURNED' AND :NEW.status IN ('RESERVED','SOLD'))
+            ) THEN
+                RAISE_APPLICATION_ERROR(-20002,
+                    'Недопустимый переход статуса билета');
+            END IF;
+        END IF;
+    END IF;
+
+    -- Сектор должен принадлежать тому же стадиону, на котором проводится матч.
+    SELECT m.stadium_id, s.stadium_id
+      INTO l_match_stadium, l_sector_stadium
+      FROM dim_match m CROSS JOIN dim_sector s
+     WHERE m.match_id = :NEW.match_id
+       AND s.sector_id = :NEW.sector_id;
+
+    IF l_match_stadium <> l_sector_stadium THEN
+        RAISE_APPLICATION_ERROR(-20003,
+            'Выбранный сектор не относится к стадиону указанного матча');
+    END IF;
+END;
+/
+
+PROMPT Триггеры TRG_DIM_MATCH_BIU и TRG_TICKETS_BIU созданы.
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\02_logic\03_functions.sql
+================================================================================
+-- =====================================================================
+-- Функции для аналитических показателей.
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+
+CREATE OR REPLACE FUNCTION f_ticket_revenue(
+    p_date_from IN DATE,
+    p_date_to   IN DATE
+) RETURN NUMBER
+AUTHID DEFINER
+IS
+    l_revenue NUMBER(14,2);
+BEGIN
+    IF p_date_from IS NULL OR p_date_to IS NULL OR TRUNC(p_date_from) > TRUNC(p_date_to) THEN
+        RAISE_APPLICATION_ERROR(-20010, 'Некорректный диапазон дат для расчёта выручки');
+    END IF;
+
+    SELECT NVL(SUM(t.price), 0)
+      INTO l_revenue
+      FROM tickets t
+      JOIN dim_time d ON d.time_id = t.sale_time_id
+     WHERE t.status = 'SOLD'
+       AND d.full_date >= TRUNC(p_date_from)
+       AND d.full_date < TRUNC(p_date_to) + 1;
+
+    RETURN l_revenue;
+END;
+/
+
+CREATE OR REPLACE FUNCTION f_player_popularity(
+    p_player_id IN NUMBER
+) RETURN NUMBER
+AUTHID DEFINER
+IS
+    l_count NUMBER;
+BEGIN
+    SELECT COUNT(DISTINCT fan_id)
+      INTO l_count
+      FROM fan_player_favorites
+     WHERE player_id = p_player_id;
+    RETURN l_count;
+END;
+/
+
+PROMPT Функции F_TICKET_REVENUE и F_PLAYER_POPULARITY созданы.
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\02_logic\04_views.sql
+================================================================================
+-- =====================================================================
+-- Представления для аналитических запросов и отчётности.
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+
+CREATE OR REPLACE VIEW v_ticket_sales_by_period AS
+SELECT d.full_date,
+       d.year_num,
+       d.month_num,
+       d.month_name,
+       d.season,
+       COUNT(*) AS tickets_sold,
+       SUM(t.price) AS revenue
+  FROM tickets t
+  JOIN dim_time d ON d.time_id = t.sale_time_id
+ WHERE t.status = 'SOLD'
+ GROUP BY d.full_date, d.year_num, d.month_num, d.month_name, d.season;
+
+CREATE OR REPLACE VIEW v_player_popularity AS
+SELECT p.player_id,
+       p.first_name,
+       p.last_name,
+       COUNT(DISTINCT f.fan_id) AS fans_favorited
+  FROM dim_player p
+  LEFT JOIN fan_player_favorites f ON f.player_id = p.player_id
+ GROUP BY p.player_id, p.first_name, p.last_name;
+
+CREATE OR REPLACE VIEW v_player_performance AS
+SELECT p.player_id,
+       p.first_name,
+       p.last_name,
+       COUNT(s.stat_id) AS matches_count,
+       NVL(SUM(s.goals), 0) AS goals_total,
+       NVL(SUM(s.assists), 0) AS assists_total,
+       NVL(SUM(s.points), 0) AS points_total,
+       NVL(SUM(s.shots), 0) AS shots_total,
+       NVL(SUM(s.penalty_minutes), 0) AS penalty_minutes_total
+  FROM dim_player p
+  LEFT JOIN fact_match_stats s ON s.player_id = p.player_id
+ GROUP BY p.player_id, p.first_name, p.last_name;
+
+CREATE OR REPLACE VIEW v_merch_sales_by_period AS
+SELECT d.full_date,
+       d.year_num,
+       d.month_num,
+       d.season,
+       m.merch_id,
+       m.name AS merch_name,
+       SUM(o.quantity) AS quantity_sold,
+       SUM(o.total_amount) AS revenue
+  FROM merch_orders o
+  JOIN dim_time d ON d.time_id = o.time_id
+  JOIN dim_merch m ON m.merch_id = o.merch_id
+ WHERE o.status = 'COMPLETED'
+ GROUP BY d.full_date, d.year_num, d.month_num, d.season, m.merch_id, m.name;
+
+PROMPT Представления V_TICKET_SALES_BY_PERIOD, V_PLAYER_POPULARITY,
+PROMPT V_PLAYER_PERFORMANCE и V_MERCH_SALES_BY_PERIOD созданы.
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\02_logic\05_packages.sql
+================================================================================
+-- =====================================================================
+-- Пакеты серверной логики: пользовательские операции, администрирование,
+-- управление прикладными учётными записями и JSON-импорт/экспорт.
+-- Все пакеты работают с правами владельца (AUTHID DEFINER).
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+
+-- ---------------------------------------------------------------------
+-- Пакет административных операций с предметными данными.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE pkg_admin_api AUTHID DEFINER AS
+    PROCEDURE add_player(
+        p_first_name IN VARCHAR2, p_last_name IN VARCHAR2,
+        p_position IN VARCHAR2, p_jersey_number IN NUMBER,
+        p_birth_date IN DATE, p_country IN VARCHAR2,
+        p_height_cm IN NUMBER, p_weight_kg IN NUMBER,
+        p_player_id OUT NUMBER);
+
+    PROCEDURE update_player(
+        p_player_id IN NUMBER, p_first_name IN VARCHAR2,
+        p_last_name IN VARCHAR2, p_position IN VARCHAR2,
+        p_jersey_number IN NUMBER, p_birth_date IN DATE,
+        p_country IN VARCHAR2, p_height_cm IN NUMBER,
+        p_weight_kg IN NUMBER, p_is_active IN CHAR);
+
+    PROCEDURE delete_player(p_player_id IN NUMBER);
+
+    PROCEDURE add_match(
+        p_match_date IN DATE, p_opponent_name IN VARCHAR2,
+        p_stadium_id IN NUMBER, p_is_home IN CHAR,
+        p_match_id OUT NUMBER);
+
+    PROCEDURE update_match(
+        p_match_id IN NUMBER, p_match_date IN DATE,
+        p_opponent_name IN VARCHAR2, p_stadium_id IN NUMBER,
+        p_is_home IN CHAR, p_match_status IN VARCHAR2,
+        p_goals_for IN NUMBER, p_goals_against IN NUMBER);
+
+    PROCEDURE delete_match(p_match_id IN NUMBER);
+
+    PROCEDURE add_ticket(
+        p_match_id IN NUMBER, p_sector_id IN NUMBER,
+        p_seat_row IN NUMBER, p_seat_number IN NUMBER,
+        p_price IN NUMBER, p_ticket_id OUT NUMBER);
+
+    PROCEDURE sell_ticket(p_ticket_id IN NUMBER, p_fan_id IN NUMBER);
+    PROCEDURE return_ticket(p_ticket_id IN NUMBER);
+    PROCEDURE release_expired_reservations(p_released_count OUT NUMBER);
+
+    PROCEDURE add_merch(
+        p_name IN VARCHAR2, p_category IN VARCHAR2,
+        p_price IN NUMBER, p_description IN VARCHAR2,
+        p_merch_id OUT NUMBER);
+
+    PROCEDURE update_merch(
+        p_merch_id IN NUMBER, p_name IN VARCHAR2,
+        p_category IN VARCHAR2, p_price IN NUMBER,
+        p_description IN VARCHAR2, p_is_active IN CHAR);
+
+    PROCEDURE delete_merch(p_merch_id IN NUMBER);
+
+    PROCEDURE add_merch_order(
+        p_merch_id IN NUMBER, p_fan_id IN NUMBER,
+        p_time_id IN NUMBER, p_quantity IN NUMBER,
+        p_order_id OUT NUMBER);
+
+    PROCEDURE ticket_sales_report(p_date_from IN DATE, p_date_to IN DATE,
+                                  p_result OUT SYS_REFCURSOR);
+    PROCEDURE player_popularity_report(p_result OUT SYS_REFCURSOR);
+END pkg_admin_api;
+/
+
+CREATE OR REPLACE PACKAGE BODY pkg_admin_api AS
+    PROCEDURE add_player(
+        p_first_name IN VARCHAR2, p_last_name IN VARCHAR2,
+        p_position IN VARCHAR2, p_jersey_number IN NUMBER,
+        p_birth_date IN DATE, p_country IN VARCHAR2,
+        p_height_cm IN NUMBER, p_weight_kg IN NUMBER,
+        p_player_id OUT NUMBER) IS
+    BEGIN
+        INSERT INTO dim_player(first_name,last_name,position,jersey_number,
+                               birth_date,country,height_cm,weight_kg)
+        VALUES (TRIM(p_first_name),TRIM(p_last_name),UPPER(TRIM(p_position)),
+                p_jersey_number,p_birth_date,p_country,p_height_cm,p_weight_kg)
+        RETURNING player_id INTO p_player_id;
+    END;
+
+    PROCEDURE update_player(
+        p_player_id IN NUMBER, p_first_name IN VARCHAR2,
+        p_last_name IN VARCHAR2, p_position IN VARCHAR2,
+        p_jersey_number IN NUMBER, p_birth_date IN DATE,
+        p_country IN VARCHAR2, p_height_cm IN NUMBER,
+        p_weight_kg IN NUMBER, p_is_active IN CHAR) IS
+    BEGIN
+        UPDATE dim_player
+           SET first_name=TRIM(p_first_name), last_name=TRIM(p_last_name),
+               position=UPPER(TRIM(p_position)), jersey_number=p_jersey_number,
+               birth_date=p_birth_date, country=p_country,
+               height_cm=p_height_cm, weight_kg=p_weight_kg,
+               is_active=UPPER(p_is_active)
+         WHERE player_id=p_player_id;
+        IF SQL%ROWCOUNT=0 THEN
+            RAISE_APPLICATION_ERROR(-20020,'Игрок не найден');
+        END IF;
+    END;
+
+    PROCEDURE delete_player(p_player_id IN NUMBER) IS
+    BEGIN
+        DELETE FROM dim_player WHERE player_id=p_player_id;
+        IF SQL%ROWCOUNT=0 THEN
+            RAISE_APPLICATION_ERROR(-20021,'Игрок не найден');
+        END IF;
+        -- Если игрок уже присутствует в статистике или избранном,
+        -- Oracle запретит удаление по внешнему ключу. В таком случае
+        -- рекомендуется использовать UPDATE is_active='N'.
+    END;
+
+    PROCEDURE add_match(
+        p_match_date IN DATE, p_opponent_name IN VARCHAR2,
+        p_stadium_id IN NUMBER, p_is_home IN CHAR,
+        p_match_id OUT NUMBER) IS
+        l_time_id NUMBER(8);
+    BEGIN
+        SELECT time_id INTO l_time_id
+          FROM dim_time
+         WHERE full_date=TRUNC(p_match_date);
+        INSERT INTO dim_match(match_date,time_id,opponent_name,stadium_id,is_home)
+        VALUES(p_match_date,l_time_id,TRIM(p_opponent_name),p_stadium_id,UPPER(p_is_home))
+        RETURNING match_id INTO p_match_id;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20022,'Для даты матча отсутствует строка в DIM_TIME');
+    END;
+
+    PROCEDURE update_match(
+        p_match_id IN NUMBER, p_match_date IN DATE,
+        p_opponent_name IN VARCHAR2, p_stadium_id IN NUMBER,
+        p_is_home IN CHAR, p_match_status IN VARCHAR2,
+        p_goals_for IN NUMBER, p_goals_against IN NUMBER) IS
+        l_time_id NUMBER(8);
+    BEGIN
+        SELECT time_id INTO l_time_id
+          FROM dim_time
+         WHERE full_date=TRUNC(p_match_date);
+        UPDATE dim_match
+           SET match_date=p_match_date, time_id=l_time_id,
+               opponent_name=TRIM(p_opponent_name), stadium_id=p_stadium_id,
+               is_home=UPPER(p_is_home), match_status=UPPER(p_match_status),
+               goals_for=p_goals_for, goals_against=p_goals_against
+         WHERE match_id=p_match_id;
+        IF SQL%ROWCOUNT=0 THEN
+            RAISE_APPLICATION_ERROR(-20023,'Матч не найден');
+        END IF;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20022,'Для даты матча отсутствует строка в DIM_TIME');
+    END;
+
+    PROCEDURE delete_match(p_match_id IN NUMBER) IS
+    BEGIN
+        DELETE FROM dim_match WHERE match_id=p_match_id;
+        IF SQL%ROWCOUNT=0 THEN
+            RAISE_APPLICATION_ERROR(-20024,'Матч не найден');
+        END IF;
+    END;
+
+    PROCEDURE add_ticket(
+        p_match_id IN NUMBER, p_sector_id IN NUMBER,
+        p_seat_row IN NUMBER, p_seat_number IN NUMBER,
+        p_price IN NUMBER, p_ticket_id OUT NUMBER) IS
+    BEGIN
+        INSERT INTO tickets(match_id,sector_id,seat_row,seat_number,price,status)
+        VALUES(p_match_id,p_sector_id,p_seat_row,p_seat_number,p_price,'FREE')
+        RETURNING ticket_id INTO p_ticket_id;
+    END;
+
+    PROCEDURE sell_ticket(p_ticket_id IN NUMBER, p_fan_id IN NUMBER) IS
+        l_status VARCHAR2(10);
+        l_time_id NUMBER(8);
+    BEGIN
+        SELECT status INTO l_status
+          FROM tickets
+         WHERE ticket_id=p_ticket_id
+           FOR UPDATE;
+        IF l_status NOT IN ('FREE','RESERVED','RETURNED') THEN
+            RAISE_APPLICATION_ERROR(-20025,'Билет нельзя продать в текущем статусе');
+        END IF;
+        SELECT time_id INTO l_time_id
+          FROM dim_time
+         WHERE full_date=TRUNC(SYSDATE);
+        UPDATE tickets
+           SET status='SOLD', fan_id=p_fan_id, sale_time_id=l_time_id,
+               reserved_by=NULL, reserved_until=NULL
+         WHERE ticket_id=p_ticket_id;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20026,'Билет не найден или текущая дата отсутствует в DIM_TIME');
+    END;
+
+    PROCEDURE return_ticket(p_ticket_id IN NUMBER) IS
+        l_status VARCHAR2(10);
+    BEGIN
+        SELECT status INTO l_status
+          FROM tickets
+         WHERE ticket_id=p_ticket_id
+           FOR UPDATE;
+        IF l_status <> 'SOLD' THEN
+            RAISE_APPLICATION_ERROR(-20027,'Возврат возможен только для проданного билета');
+        END IF;
+        UPDATE tickets
+           SET status='RETURNED', reserved_by=NULL, reserved_until=NULL
+         WHERE ticket_id=p_ticket_id;
+        -- fan_id и sale_time_id сохраняются как сведения о состоявшейся продаже.
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20026,'Билет не найден');
+    END;
+
+    PROCEDURE release_expired_reservations(p_released_count OUT NUMBER) IS
+    BEGIN
+        UPDATE tickets
+           SET status='FREE', reserved_by=NULL, reserved_until=NULL
+         WHERE status='RESERVED' AND reserved_until <= SYSDATE;
+        p_released_count := SQL%ROWCOUNT;
+    END;
+
+    PROCEDURE add_merch(
+        p_name IN VARCHAR2, p_category IN VARCHAR2,
+        p_price IN NUMBER, p_description IN VARCHAR2,
+        p_merch_id OUT NUMBER) IS
+    BEGIN
+        INSERT INTO dim_merch(name,category,price,description)
+        VALUES(TRIM(p_name),TRIM(p_category),p_price,p_description)
+        RETURNING merch_id INTO p_merch_id;
+    END;
+
+    PROCEDURE update_merch(
+        p_merch_id IN NUMBER, p_name IN VARCHAR2,
+        p_category IN VARCHAR2, p_price IN NUMBER,
+        p_description IN VARCHAR2, p_is_active IN CHAR) IS
+    BEGIN
+        UPDATE dim_merch
+           SET name=TRIM(p_name), category=TRIM(p_category), price=p_price,
+               description=p_description, is_active=UPPER(p_is_active)
+         WHERE merch_id=p_merch_id;
+        IF SQL%ROWCOUNT=0 THEN
+            RAISE_APPLICATION_ERROR(-20028,'Товар не найден');
+        END IF;
+    END;
+
+    PROCEDURE delete_merch(p_merch_id IN NUMBER) IS
+    BEGIN
+        DELETE FROM dim_merch WHERE merch_id=p_merch_id;
+        IF SQL%ROWCOUNT=0 THEN
+            RAISE_APPLICATION_ERROR(-20029,'Товар не найден');
+        END IF;
+    END;
+
+    PROCEDURE add_merch_order(
+        p_merch_id IN NUMBER, p_fan_id IN NUMBER,
+        p_time_id IN NUMBER, p_quantity IN NUMBER,
+        p_order_id OUT NUMBER) IS
+        l_price NUMBER(10,2);
+    BEGIN
+        SELECT price INTO l_price
+          FROM dim_merch
+         WHERE merch_id=p_merch_id AND is_active='Y';
+        INSERT INTO merch_orders(merch_id,fan_id,time_id,quantity,unit_price,status)
+        VALUES(p_merch_id,p_fan_id,p_time_id,p_quantity,l_price,'COMPLETED')
+        RETURNING order_id INTO p_order_id;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20030,'Активный товар не найден');
+    END;
+
+    PROCEDURE ticket_sales_report(p_date_from IN DATE, p_date_to IN DATE,
+                                  p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT full_date, year_num, month_num, month_name, season,
+                   tickets_sold, revenue
+              FROM v_ticket_sales_by_period
+             WHERE (p_date_from IS NULL OR full_date >= TRUNC(p_date_from))
+               AND (p_date_to IS NULL OR full_date < TRUNC(p_date_to)+1)
+             ORDER BY full_date;
+    END;
+
+    PROCEDURE player_popularity_report(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT player_id, first_name, last_name, fans_favorited
+              FROM v_player_popularity
+             ORDER BY fans_favorited DESC, last_name, first_name;
+    END;
+END pkg_admin_api;
+/
+
+-- ---------------------------------------------------------------------
+-- Пакет действий пользователя. Профиль болельщика определяется по
+-- APP_USERS.FAN_ID после проверки активной прикладной записи с ролью USER.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE pkg_user_api AUTHID DEFINER AS
+    PROCEDURE list_players(p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_matches(p_date_from IN DATE, p_date_to IN DATE,
+                           p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_available_tickets(p_match_id IN NUMBER,
+                                     p_result OUT SYS_REFCURSOR);
+    PROCEDURE list_merch(p_result OUT SYS_REFCURSOR);
+    PROCEDURE reserve_ticket(p_ticket_id IN NUMBER, p_app_user_id IN NUMBER,
+                             p_minutes IN NUMBER DEFAULT 15);
+    PROCEDURE add_favorite(p_app_user_id IN NUMBER, p_player_id IN NUMBER);
+    PROCEDURE remove_favorite(p_app_user_id IN NUMBER, p_player_id IN NUMBER);
+    PROCEDURE list_favorites(p_app_user_id IN NUMBER, p_result OUT SYS_REFCURSOR);
+END pkg_user_api;
+/
+
+CREATE OR REPLACE PACKAGE BODY pkg_user_api AS
+    FUNCTION current_fan_id(p_app_user_id IN NUMBER) RETURN NUMBER IS
+        l_fan_id NUMBER;
+    BEGIN
+        SELECT fan_id INTO l_fan_id
+          FROM app_users
+         WHERE user_id=p_app_user_id
+           AND is_active='Y'
+           AND role='USER'
+           AND fan_id IS NOT NULL
+           AND UPPER(db_username)=SYS_CONTEXT('USERENV','SESSION_USER');
+        RETURN l_fan_id;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20040,
+              'Для текущего Oracle-сеанса не найдена активная APP_USERS-запись USER с привязанным DIM_FAN');
+    END;
+
+    PROCEDURE list_players(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT player_id, first_name, last_name, position, jersey_number,
+                   birth_date, country, is_active
+              FROM dim_player
+             WHERE is_active='Y'
+             ORDER BY last_name, first_name;
+    END;
+
+    PROCEDURE list_matches(p_date_from IN DATE, p_date_to IN DATE,
+                           p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT m.match_id, m.match_date, m.opponent_name, s.name AS stadium,
+                   m.is_home, m.goals_for, m.goals_against, m.match_status
+              FROM dim_match m
+              JOIN dim_stadium s ON s.stadium_id=m.stadium_id
+             WHERE (p_date_from IS NULL OR m.match_date >= TRUNC(p_date_from))
+               AND (p_date_to IS NULL OR m.match_date < TRUNC(p_date_to)+1)
+             ORDER BY m.match_date;
+    END;
+
+    PROCEDURE list_available_tickets(p_match_id IN NUMBER,
+                                     p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT t.ticket_id, t.match_id, s.sector_code, t.seat_row,
+                   t.seat_number, t.price, t.status
+              FROM tickets t
+              JOIN dim_sector s ON s.sector_id=t.sector_id
+             WHERE t.match_id=p_match_id
+               AND (t.status='FREE' OR
+                    (t.status='RESERVED' AND t.reserved_until <= SYSDATE))
+             ORDER BY s.sector_code, t.seat_row, t.seat_number;
+    END;
+
+    PROCEDURE list_merch(p_result OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN p_result FOR
+            SELECT merch_id, name, category, price, description
+              FROM dim_merch
+             WHERE is_active='Y'
+             ORDER BY category, name;
+    END;
+
+    PROCEDURE reserve_ticket(p_ticket_id IN NUMBER, p_app_user_id IN NUMBER,
+                             p_minutes IN NUMBER DEFAULT 15) IS
+        l_fan_id NUMBER;
+        l_status VARCHAR2(10);
+        l_reserved_until DATE;
+    BEGIN
+        IF p_minutes IS NULL OR p_minutes < 1 OR p_minutes > 120 THEN
+            RAISE_APPLICATION_ERROR(-20042,'Срок резерва должен составлять от 1 до 120 минут');
+        END IF;
+        l_fan_id := current_fan_id(p_app_user_id);
+        SELECT status, reserved_until
+          INTO l_status, l_reserved_until
+          FROM tickets
+         WHERE ticket_id=p_ticket_id
+           FOR UPDATE;
+
+        IF l_status='RESERVED' AND l_reserved_until <= SYSDATE THEN
+            UPDATE tickets
+               SET status='FREE', reserved_by=NULL, reserved_until=NULL
+             WHERE ticket_id=p_ticket_id;
+            l_status := 'FREE';
+        END IF;
+
+        IF l_status NOT IN ('FREE','RETURNED') THEN
+            RAISE_APPLICATION_ERROR(-20043,'Билет уже продан или зарезервирован');
+        END IF;
+
+        UPDATE tickets
+           SET status='RESERVED', fan_id=NULL, sale_time_id=NULL,
+               reserved_by=l_fan_id, reserved_until=SYSDATE+(p_minutes/1440)
+         WHERE ticket_id=p_ticket_id;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20044,'Билет не найден');
+    END;
+
+    PROCEDURE add_favorite(p_app_user_id IN NUMBER, p_player_id IN NUMBER) IS
+        l_fan_id NUMBER;
+    BEGIN
+        l_fan_id := current_fan_id(p_app_user_id);
+        INSERT INTO fan_player_favorites(fan_id,player_id)
+        VALUES(l_fan_id,p_player_id);
+    EXCEPTION
+        WHEN DUP_VAL_ON_INDEX THEN
+            RAISE_APPLICATION_ERROR(-20045,'Игрок уже находится в списке избранного');
+    END;
+
+    PROCEDURE remove_favorite(p_app_user_id IN NUMBER, p_player_id IN NUMBER) IS
+        l_fan_id NUMBER;
+    BEGIN
+        l_fan_id := current_fan_id(p_app_user_id);
+        DELETE FROM fan_player_favorites
+         WHERE fan_id=l_fan_id AND player_id=p_player_id;
+        IF SQL%ROWCOUNT=0 THEN
+            RAISE_APPLICATION_ERROR(-20046,'Игрок не найден в списке избранного');
+        END IF;
+    END;
+
+    PROCEDURE list_favorites(p_app_user_id IN NUMBER, p_result OUT SYS_REFCURSOR) IS
+        l_fan_id NUMBER;
+    BEGIN
+        l_fan_id := current_fan_id(p_app_user_id);
+        OPEN p_result FOR
+            SELECT p.player_id,p.first_name,p.last_name,p.position,f.created_at
+              FROM fan_player_favorites f
+              JOIN dim_player p ON p.player_id=f.player_id
+             WHERE f.fan_id=l_fan_id
+             ORDER BY f.created_at DESC;
+    END;
+
+END pkg_user_api;
+/
+
+-- ---------------------------------------------------------------------
+-- Управление прикладными учётными записями. Доступ получает только
+-- главная административная роль Oracle.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE pkg_security_api AUTHID DEFINER AS
+    PROCEDURE create_app_user(
+        p_username IN VARCHAR2, p_password_hash IN VARCHAR2,
+        p_email IN VARCHAR2, p_role IN VARCHAR2,
+        p_fan_id IN NUMBER, p_user_id OUT NUMBER);
+    PROCEDURE change_app_user_role(p_user_id IN NUMBER, p_role IN VARCHAR2);
+    PROCEDURE set_app_user_active(p_user_id IN NUMBER, p_is_active IN CHAR);
+    PROCEDURE bind_app_user_db_user(p_user_id IN NUMBER, p_db_username IN VARCHAR2);
+END pkg_security_api;
+/
+
+CREATE OR REPLACE PACKAGE BODY pkg_security_api AS
+    PROCEDURE create_app_user(
+        p_username IN VARCHAR2, p_password_hash IN VARCHAR2,
+        p_email IN VARCHAR2, p_role IN VARCHAR2,
+        p_fan_id IN NUMBER, p_user_id OUT NUMBER) IS
+        l_role VARCHAR2(20);
+    BEGIN
+        l_role := UPPER(TRIM(p_role));
+        IF l_role NOT IN ('MAIN_ADMIN','ADMIN','USER') THEN
+            RAISE_APPLICATION_ERROR(-20050,'Недопустимая прикладная роль');
+        END IF;
+        IF p_password_hash IS NULL OR LENGTH(TRIM(p_password_hash)) < 20 THEN
+            RAISE_APPLICATION_ERROR(-20051,'Передайте хеш пароля, а не открытый пароль');
+        END IF;
+        INSERT INTO app_users(username,password_hash,email,role,fan_id)
+        VALUES(TRIM(p_username),p_password_hash,LOWER(TRIM(p_email)),l_role,p_fan_id)
+        RETURNING user_id INTO p_user_id;
+    END;
+
+    PROCEDURE change_app_user_role(p_user_id IN NUMBER, p_role IN VARCHAR2) IS
+        l_role VARCHAR2(20);
+    BEGIN
+        l_role := UPPER(TRIM(p_role));
+        IF l_role NOT IN ('MAIN_ADMIN','ADMIN','USER') THEN
+            RAISE_APPLICATION_ERROR(-20050,'Недопустимая прикладная роль');
+        END IF;
+        UPDATE app_users SET role=l_role WHERE user_id=p_user_id;
+        IF SQL%ROWCOUNT=0 THEN
+            RAISE_APPLICATION_ERROR(-20052,'Прикладная учётная запись не найдена');
+        END IF;
+    END;
+
+    PROCEDURE set_app_user_active(p_user_id IN NUMBER, p_is_active IN CHAR) IS
+    BEGIN
+        IF UPPER(p_is_active) NOT IN ('Y','N') THEN
+            RAISE_APPLICATION_ERROR(-20053,'Признак активности должен быть Y или N');
+        END IF;
+        UPDATE app_users SET is_active=UPPER(p_is_active) WHERE user_id=p_user_id;
+        IF SQL%ROWCOUNT=0 THEN
+            RAISE_APPLICATION_ERROR(-20052,'Прикладная учётная запись не найдена');
+        END IF;
+    END;
+
+    PROCEDURE bind_app_user_db_user(p_user_id IN NUMBER, p_db_username IN VARCHAR2) IS
+        l_count PLS_INTEGER;
+    BEGIN
+        IF p_db_username IS NULL OR TRIM(p_db_username) IS NULL THEN
+            RAISE_APPLICATION_ERROR(-20054,'Необходимо указать Oracle-пользователя');
+        END IF;
+        SELECT COUNT(*) INTO l_count
+          FROM all_users
+         WHERE username=UPPER(TRIM(p_db_username));
+        IF l_count=0 THEN
+            RAISE_APPLICATION_ERROR(-20055,'Указанный Oracle-пользователь не существует');
+        END IF;
+        UPDATE app_users
+           SET db_username=UPPER(TRIM(p_db_username))
+         WHERE user_id=p_user_id;
+        IF SQL%ROWCOUNT=0 THEN
+            RAISE_APPLICATION_ERROR(-20052,'Прикладная учётная запись не найдена');
+        END IF;
+    END;
+END pkg_security_api;
+/
+
+-- ---------------------------------------------------------------------
+-- Импорт/экспорт JSON-файлов. Ожидается файл UTF-8 с объектом вида
+-- {"players":[{...}, ...]}. Для файлов используется DIRECTORY HK_JSON_DIR.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE pkg_json_io AUTHID DEFINER AS
+    PROCEDURE import_players(p_file_name IN VARCHAR2);
+    PROCEDURE export_players(p_file_name IN VARCHAR2);
+END pkg_json_io;
+/
+
+CREATE OR REPLACE PACKAGE BODY pkg_json_io AS
+    PROCEDURE read_file_to_clob(p_file_name IN VARCHAR2, p_json OUT CLOB) IS
+        l_file UTL_FILE.FILE_TYPE;
+        l_line VARCHAR2(32767);
+    BEGIN
+        DBMS_LOB.CREATETEMPORARY(p_json, TRUE);
+        l_file := UTL_FILE.FOPEN('HK_JSON_DIR',p_file_name,'R',32767);
+        LOOP
+            BEGIN
+                UTL_FILE.GET_LINE(l_file,l_line);
+                DBMS_LOB.WRITEAPPEND(p_json,LENGTH(l_line),l_line);
+                DBMS_LOB.WRITEAPPEND(p_json,1,CHR(10));
+            EXCEPTION
+                WHEN NO_DATA_FOUND THEN EXIT;
+            END;
+        END LOOP;
+        UTL_FILE.FCLOSE(l_file);
+    EXCEPTION
+        WHEN OTHERS THEN
+            IF UTL_FILE.IS_OPEN(l_file) THEN UTL_FILE.FCLOSE(l_file); END IF;
+            IF p_json IS NOT NULL AND DBMS_LOB.ISTEMPORARY(p_json)=1 THEN
+                DBMS_LOB.FREETEMPORARY(p_json);
+            END IF;
+            RAISE;
+    END;
+
+    PROCEDURE import_players(p_file_name IN VARCHAR2) IS
+        l_json CLOB;
+    BEGIN
+        read_file_to_clob(p_file_name,l_json);
+        INSERT INTO dim_player(first_name,last_name,position,jersey_number,
+                               birth_date,country,height_cm,weight_kg)
+        SELECT jt.first_name,
+               jt.last_name,
+               UPPER(jt.position),
+               jt.jersey_number,
+               CASE WHEN jt.birth_date IS NOT NULL
+                    THEN TO_DATE(jt.birth_date,'YYYY-MM-DD') END,
+               jt.country,
+               jt.height_cm,
+               jt.weight_kg
+          FROM JSON_TABLE(l_json,'$.players[*]'
+                 COLUMNS (
+                   first_name    VARCHAR2(50) PATH '$.first_name',
+                   last_name     VARCHAR2(50) PATH '$.last_name',
+                   position      VARCHAR2(15) PATH '$.position',
+                   jersey_number NUMBER       PATH '$.jersey_number' NULL ON ERROR,
+                   birth_date    VARCHAR2(10) PATH '$.birth_date' NULL ON ERROR,
+                   country       VARCHAR2(50) PATH '$.country' NULL ON ERROR,
+                   height_cm     NUMBER       PATH '$.height_cm' NULL ON ERROR,
+                   weight_kg     NUMBER       PATH '$.weight_kg' NULL ON ERROR
+                 )) jt;
+        DBMS_LOB.FREETEMPORARY(l_json);
+    EXCEPTION
+        WHEN OTHERS THEN
+            IF l_json IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_json)=1 THEN
+                DBMS_LOB.FREETEMPORARY(l_json);
+            END IF;
+            RAISE;
+    END;
+
+    PROCEDURE export_players(p_file_name IN VARCHAR2) IS
+        l_json CLOB;
+        l_file UTL_FILE.FILE_TYPE;
+        l_offset PLS_INTEGER := 1;
+        l_chunk VARCHAR2(32767);
+        l_length PLS_INTEGER;
+    BEGIN
+        SELECT JSON_OBJECT(
+                 'players' VALUE (
+                   SELECT JSON_ARRAYAGG(
+                            JSON_OBJECT(
+                              'player_id' VALUE player_id,
+                              'first_name' VALUE first_name,
+                              'last_name' VALUE last_name,
+                              'position' VALUE position,
+                              'jersey_number' VALUE jersey_number,
+                              'birth_date' VALUE CASE WHEN birth_date IS NOT NULL
+                                                       THEN TO_CHAR(birth_date,'YYYY-MM-DD') END,
+                              'country' VALUE country,
+                              'height_cm' VALUE height_cm,
+                              'weight_kg' VALUE weight_kg,
+                              'is_active' VALUE is_active
+                              NULL ON NULL RETURNING CLOB
+                            ) RETURNING CLOB
+                          )
+                     FROM dim_player
+                 ) FORMAT JSON
+                 RETURNING CLOB
+               )
+          INTO l_json
+          FROM dual;
+
+        l_file := UTL_FILE.FOPEN('HK_JSON_DIR',p_file_name,'W',32767);
+        l_length := DBMS_LOB.GETLENGTH(l_json);
+        WHILE l_offset <= l_length LOOP
+            l_chunk := DBMS_LOB.SUBSTR(l_json,32767,l_offset);
+            UTL_FILE.PUT(l_file,l_chunk);
+            l_offset := l_offset + LENGTH(l_chunk);
+        END LOOP;
+        UTL_FILE.NEW_LINE(l_file);
+        UTL_FILE.FCLOSE(l_file);
+        DBMS_LOB.FREETEMPORARY(l_json);
+    EXCEPTION
+        WHEN OTHERS THEN
+            IF UTL_FILE.IS_OPEN(l_file) THEN UTL_FILE.FCLOSE(l_file); END IF;
+            IF l_json IS NOT NULL AND DBMS_LOB.ISTEMPORARY(l_json)=1 THEN
+                DBMS_LOB.FREETEMPORARY(l_json);
+            END IF;
+            RAISE;
+    END;
+END pkg_json_io;
+/
+
+PROMPT Пакеты PKG_ADMIN_API, PKG_USER_API, PKG_SECURITY_API и PKG_JSON_IO созданы.
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\03_security\07_grants.sql
+================================================================================
+-- =====================================================================
+-- Выдача доступа через пакеты PL/SQL. Табличные привилегии не выдаются.
+-- Выполнять от HK_DINAMO после создания пакетов.
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+
+GRANT EXECUTE ON pkg_user_api TO HK_USER_ROLE;
+GRANT EXECUTE ON pkg_admin_api TO HK_ADMIN_ROLE;
+GRANT EXECUTE ON pkg_json_io TO HK_ADMIN_ROLE;
+GRANT EXECUTE ON pkg_security_api TO HK_MAIN_ADMIN_ROLE;
+GRANT EXECUTE ON f_ticket_revenue TO HK_ADMIN_ROLE;
+GRANT EXECUTE ON f_player_popularity TO HK_ADMIN_ROLE;
+
+PROMPT Права EXECUTE выданы ролям HK_USER_ROLE, HK_ADMIN_ROLE и HK_MAIN_ADMIN_ROLE.
+PROMPT Прямых SELECT/INSERT/UPDATE/DELETE-привилегий на таблицы не выдавалось.
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\04_data\06_seed_demo_data.sql
+================================================================================
+-- =====================================================================
+-- Демонстрационные справочные и операционные данные.
+-- Выполнять от HK_DINAMO на пустой схеме после установки объектов.
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+SET SERVEROUTPUT ON
+
+-- Календарь на 2024–2035 гг. Включает текущую дату и даты тестовых матчей.
+INSERT INTO dim_time(time_id,full_date,day_of_week,day_num,month_num,
+                     month_name,quarter_num,year_num,season)
+SELECT TO_NUMBER(TO_CHAR(d,'YYYYMMDD')),
+       d,
+       TO_CHAR(d,'FMDAY','NLS_DATE_LANGUAGE=RUSSIAN'),
+       TO_NUMBER(TO_CHAR(d,'DD')),
+       TO_NUMBER(TO_CHAR(d,'MM')),
+       TO_CHAR(d,'FMMONTH','NLS_DATE_LANGUAGE=RUSSIAN'),
+       TO_NUMBER(TO_CHAR(d,'Q')),
+       TO_NUMBER(TO_CHAR(d,'YYYY')),
+       CASE WHEN TO_NUMBER(TO_CHAR(d,'MM')) >= 7
+            THEN TO_CHAR(TO_NUMBER(TO_CHAR(d,'YYYY'))) || '/' ||
+                 TO_CHAR(TO_NUMBER(TO_CHAR(d,'YYYY'))+1)
+            ELSE TO_CHAR(TO_NUMBER(TO_CHAR(d,'YYYY'))-1) || '/' ||
+                 TO_CHAR(TO_NUMBER(TO_CHAR(d,'YYYY')))
+       END
+  FROM (SELECT DATE '2024-01-01' + LEVEL - 1 AS d
+          FROM dual
+        CONNECT BY LEVEL <= (DATE '2035-12-31' - DATE '2024-01-01') + 1);
+
+DECLARE
+    l_stadium_id NUMBER;
+    l_sector_a   NUMBER;
+    l_sector_b   NUMBER;
+    l_player_1   NUMBER;
+    l_player_2   NUMBER;
+    l_player_3   NUMBER;
+    l_fan_id     NUMBER;
+    l_merch_1    NUMBER;
+    l_merch_2    NUMBER;
+    l_match_id   NUMBER;
+    l_today_id   NUMBER;
+    l_match_time NUMBER;
+    l_ticket_id  NUMBER;
+    l_order_id   NUMBER;
+BEGIN
+    INSERT INTO dim_stadium(name,city,capacity)
+    VALUES(UNISTR('\041C\0438\043D\0441\043A-\0410\0440\0435\043D\0430'),UNISTR('\041C\0438\043D\0441\043A'),15000)
+    RETURNING stadium_id INTO l_stadium_id;
+
+    INSERT INTO dim_sector(stadium_id,sector_code,category,capacity)
+    VALUES(l_stadium_id,'A','STANDARD',5000)
+    RETURNING sector_id INTO l_sector_a;
+
+    INSERT INTO dim_sector(stadium_id,sector_code,category,capacity)
+    VALUES(l_stadium_id,'B','FAN',5000)
+    RETURNING sector_id INTO l_sector_b;
+
+    INSERT INTO dim_player(first_name,last_name,position,jersey_number,
+                           birth_date,country,height_cm,weight_kg)
+    VALUES(UNISTR('\0414\0435\043C\043E'),UNISTR('\041D\0430\043F\0430\0434\0430\044E\0449\0438\0439'),'FORWARD',10,DATE '1998-04-12',UNISTR('\0411\0435\043B\0430\0440\0443\0441\044C'),183,82)
+    RETURNING player_id INTO l_player_1;
+
+    INSERT INTO dim_player(first_name,last_name,position,jersey_number,
+                           birth_date,country,height_cm,weight_kg)
+    VALUES(UNISTR('\0414\0435\043C\043E'),UNISTR('\0417\0430\0449\0438\0442\043D\0438\043A'),'DEFENDER',22,DATE '1997-08-03',UNISTR('\0411\0435\043B\0430\0440\0443\0441\044C'),188,90)
+    RETURNING player_id INTO l_player_2;
+
+    INSERT INTO dim_player(first_name,last_name,position,jersey_number,
+                           birth_date,country,height_cm,weight_kg)
+    VALUES(UNISTR('\0414\0435\043C\043E'),UNISTR('\0412\0440\0430\0442\0430\0440\044C'),'GOALTENDER',30,DATE '1999-01-20',UNISTR('\0411\0435\043B\0430\0440\0443\0441\044C'),190,87)
+    RETURNING player_id INTO l_player_3;
+
+    INSERT INTO dim_fan(first_name,last_name,email,phone,city)
+    VALUES(UNISTR('\0422\0435\0441\0442\043E\0432\044B\0439'),UNISTR('\0411\043E\043B\0435\043B\044C\0449\0438\043A'),'fan.demo@example.local','+375000000000',UNISTR('\041C\0438\043D\0441\043A'))
+    RETURNING fan_id INTO l_fan_id;
+
+    INSERT INTO dim_merch(name,category,price,description)
+    VALUES(UNISTR('\0428\0430\0440\0444 \043A\043B\0443\0431\0430'),UNISTR('\0421\0443\0432\0435\043D\0438\0440\044B'),35.00,UNISTR('\0414\0435\043C\043E\043D\0441\0442\0440\0430\0446\0438\043E\043D\043D\044B\0439 \0448\0430\0440\0444 \0441 \0441\0438\043C\0432\043E\043B\0438\043A\043E\0439 \043A\043B\0443\0431\0430'))
+    RETURNING merch_id INTO l_merch_1;
+
+    INSERT INTO dim_merch(name,category,price,description)
+    VALUES(UNISTR('\0424\0443\0442\0431\043E\043B\043A\0430 \043A\043B\0443\0431\0430'),UNISTR('\041E\0434\0435\0436\0434\0430'),65.00,UNISTR('\0414\0435\043C\043E\043D\0441\0442\0440\0430\0446\0438\043E\043D\043D\0430\044F \0444\0443\0442\0431\043E\043B\043A\0430 \043A\043B\0443\0431\0430'))
+    RETURNING merch_id INTO l_merch_2;
+
+    SELECT time_id INTO l_today_id
+      FROM dim_time WHERE full_date=TRUNC(SYSDATE);
+
+    SELECT time_id INTO l_match_time
+      FROM dim_time WHERE full_date=DATE '2026-11-20';
+
+    INSERT INTO dim_match(match_date,time_id,opponent_name,stadium_id,is_home)
+    VALUES(DATE '2026-11-20',l_match_time,UNISTR('\0414\0435\043C\043E\043D\0441\0442\0440\0430\0446\0438\043E\043D\043D\044B\0439 \0441\043E\043F\0435\0440\043D\0438\043A'),l_stadium_id,'Y')
+    RETURNING match_id INTO l_match_id;
+
+    -- Три статуса билета для демонстрации операций.
+    INSERT INTO tickets(match_id,sector_id,seat_row,seat_number,price,status)
+    VALUES(l_match_id,l_sector_a,1,1,45,'FREE')
+    RETURNING ticket_id INTO l_ticket_id;
+
+    INSERT INTO tickets(match_id,sector_id,seat_row,seat_number,price,status,
+                        reserved_by,reserved_until)
+    VALUES(l_match_id,l_sector_a,1,2,45,'RESERVED',l_fan_id,SYSDATE+30/1440);
+
+    INSERT INTO tickets(match_id,sector_id,seat_row,seat_number,price,status,
+                        fan_id,sale_time_id)
+    VALUES(l_match_id,l_sector_a,1,3,45,'SOLD',l_fan_id,l_today_id);
+
+    INSERT INTO tickets(match_id,sector_id,seat_row,seat_number,price,status)
+    VALUES(l_match_id,l_sector_b,1,1,55,'RETURNED');
+
+    INSERT INTO fact_match_stats(match_id,player_id,time_id,goals,assists,
+                                 penalty_minutes,plus_minus,shots,time_on_ice_sec)
+    VALUES(l_match_id,l_player_1,l_match_time,1,1,2,1,4,1020);
+
+    INSERT INTO fact_match_stats(match_id,player_id,time_id,goals,assists,
+                                 penalty_minutes,plus_minus,shots,time_on_ice_sec)
+    VALUES(l_match_id,l_player_2,l_match_time,0,1,0,1,2,1240);
+
+    INSERT INTO fan_player_favorites(fan_id,player_id)
+    VALUES(l_fan_id,l_player_1);
+
+    INSERT INTO merch_orders(merch_id,fan_id,time_id,quantity,unit_price,status)
+    VALUES(l_merch_1,l_fan_id,l_today_id,2,35,'COMPLETED');
+
+    -- Связь учебной Oracle-учётной записи HK_USER с болельщиком.
+    INSERT INTO app_users(username,password_hash,email,role,fan_id,db_username)
+    VALUES('demo_user','DEMO_HASH_REPLACE_WITH_BCRYPT_OR_PBKDF2_HASH',
+           'demo.user@example.local','USER',l_fan_id,'HK_USER');
+
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Демонстрационные данные добавлены. FAN_ID='||l_fan_id||
+                         ', MATCH_ID='||l_match_id||', PLAYER_ID='||l_player_1);
+END;
+/
+
+PROMPT Демонстрационные данные созданы.
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\04_data\install_all.sql
+================================================================================
+-- =====================================================================
+-- Установка объектов в схему HK_DINAMO.
+-- Запускать из каталога пакета от имени HK_DINAMO после 00_create_users_roles.sql.
+-- Этот сценарий намеренно не создаёт дополнительные индексы для того,
+-- чтобы сначала можно было зафиксировать план выполнения ДО индексации.
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+SET ECHO ON
+SET SERVEROUTPUT ON
+
+@@../01_schema/01_tables.sql
+@@../02_logic/02_triggers.sql
+@@../02_logic/03_functions.sql
+@@../02_logic/04_views.sql
+@@../02_logic/05_packages.sql
+@@../04_data/06_seed_demo_data.sql
+@@../03_security/07_grants.sql
+@@../06_performance/07_load_100k_tickets.sql
+
+PROMPT Проверка состояния объектов:
+SELECT object_type, status, COUNT(*) AS object_count
+  FROM user_objects
+ WHERE object_type IN ('TABLE','VIEW','FUNCTION','PROCEDURE','PACKAGE','TRIGGER','INDEX')
+ GROUP BY object_type,status
+ ORDER BY object_type,status;
+
+PROMPT Если в USER_OBJECTS есть INVALID, проверьте USER_ERRORS.
+SELECT name, type, line, position, text
+  FROM user_errors
+ ORDER BY name, sequence;
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\06_performance\07_load_100k_tickets.sql
+================================================================================
+-- =====================================================================
+-- Загрузка минимум 100 000 тестовых строк в TICKETS.
+-- Выполнять от HK_DINAMO после seed_demo_data.sql.
+-- Десять тестовых матчей, по 10 000 мест на матч (2 сектора по 5 000).
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+SET SERVEROUTPUT ON
+
+DECLARE
+    l_stadium_id NUMBER;
+    l_sector_a   NUMBER;
+    l_sector_b   NUMBER;
+    l_fan_id     NUMBER;
+    l_match_id   NUMBER;
+    l_time_id    NUMBER(8);
+    l_existing   NUMBER;
+    l_total      NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO l_existing
+      FROM dim_match
+     WHERE opponent_name LIKE 'TEST PERF %';
+    IF l_existing > 0 THEN
+        RAISE_APPLICATION_ERROR(-20100,
+          'Тестовые матчи уже существуют. Для повторного запуска очистите тестовые матчи и билеты либо создайте новую схему.');
+    END IF;
+
+    SELECT MIN(stadium_id) INTO l_stadium_id FROM dim_stadium;
+    SELECT MIN(sector_id), MAX(sector_id)
+      INTO l_sector_a, l_sector_b
+      FROM dim_sector
+     WHERE stadium_id=l_stadium_id;
+    SELECT MIN(fan_id) INTO l_fan_id FROM dim_fan;
+
+    IF l_stadium_id IS NULL OR l_sector_a IS NULL OR l_sector_b IS NULL OR l_sector_a=l_sector_b OR l_fan_id IS NULL THEN
+        RAISE_APPLICATION_ERROR(-20101,'Сначала выполните загрузку демонстрационных данных');
+    END IF;
+
+    FOR i IN 1..10 LOOP
+        SELECT time_id INTO l_time_id
+          FROM dim_time
+         WHERE full_date=TRUNC(SYSDATE)+i;
+
+        INSERT INTO dim_match(match_date,time_id,opponent_name,stadium_id,is_home)
+        VALUES(TRUNC(SYSDATE)+i,l_time_id,'TEST PERF '||TO_CHAR(i,'FM00'),l_stadium_id,'Y')
+        RETURNING match_id INTO l_match_id;
+
+        INSERT INTO tickets(match_id,sector_id,seat_row,seat_number,price,status,
+                             fan_id,sale_time_id,reserved_by,reserved_until)
+        SELECT l_match_id,
+               CASE WHEN q.n <= 5000 THEN l_sector_a ELSE l_sector_b END,
+               CEIL(q.seat_pos/100),
+               MOD(q.seat_pos-1,100)+1,
+               40 + MOD(q.n,5)*5,
+               CASE MOD(q.n,4)
+                    WHEN 0 THEN 'FREE'
+                    WHEN 1 THEN 'RESERVED'
+                    WHEN 2 THEN 'SOLD'
+                    ELSE 'RETURNED'
+               END,
+               CASE WHEN MOD(q.n,4)=2 THEN l_fan_id END,
+               CASE WHEN MOD(q.n,4)=2 THEN l_time_id END,
+               CASE WHEN MOD(q.n,4)=1 THEN l_fan_id END,
+               CASE WHEN MOD(q.n,4)=1 THEN SYSDATE+1 END
+          FROM (SELECT LEVEL AS n,
+                       CASE WHEN LEVEL<=5000 THEN LEVEL ELSE LEVEL-5000 END AS seat_pos
+                  FROM dual
+                CONNECT BY LEVEL<=10000) q;
+    END LOOP;
+
+    SELECT COUNT(*) INTO l_total
+      FROM tickets t
+      JOIN dim_match m ON m.match_id=t.match_id
+     WHERE m.opponent_name LIKE 'TEST PERF %';
+
+    IF l_total < 100000 THEN
+        RAISE_APPLICATION_ERROR(-20102,'Не удалось загрузить требуемые 100 000 строк');
+    END IF;
+
+    DBMS_STATS.GATHER_TABLE_STATS(USER,'TICKETS',cascade=>TRUE);
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Загружено строк в TICKETS для тестирования: '||l_total);
+END;
+/
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\06_performance\08_perf_before_indexes.sql
+================================================================================
+-- =====================================================================
+-- Фиксация плана и времени выполнения ДО создания дополнительного индекса.
+-- Выполнять от HK_DINAMO после загрузки 100 000 строк.
+-- =====================================================================
+SET TIMING ON
+SET LINESIZE 180
+SET PAGESIZE 100
+
+EXPLAIN PLAN SET STATEMENT_ID='TICKETS_BEFORE_IDX' FOR
+SELECT /*+ FULL(t) */ COUNT(*) AS sold_tickets,
+       NVL(SUM(t.price),0) AS revenue
+  FROM tickets t
+ WHERE t.status='SOLD'
+   AND t.sale_time_id=(
+       SELECT MAX(m.time_id)
+         FROM dim_match m
+        WHERE m.opponent_name LIKE 'TEST PERF %'
+   );
+
+SELECT *
+  FROM TABLE(DBMS_XPLAN.DISPLAY(NULL,'TICKETS_BEFORE_IDX','BASIC +COST +ROWS +PREDICATE'));
+
+PROMPT Фактический запуск запроса ДО индексации:
+SELECT /*+ FULL(t) */ COUNT(*) AS sold_tickets,
+       NVL(SUM(t.price),0) AS revenue
+  FROM tickets t
+ WHERE t.status='SOLD'
+   AND t.sale_time_id=(
+       SELECT MAX(m.time_id)
+         FROM dim_match m
+        WHERE m.opponent_name LIKE 'TEST PERF %'
+   );
+
+PROMPT Сохраните время выполнения и план в таблицу результатов курсовой.
+SET TIMING OFF
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\06_performance\09_create_performance_index.sql
+================================================================================
+-- =====================================================================
+-- Индекс, проверяемый в эксперименте производительности.
+-- Выполнять от HK_DINAMO после скрипта 08_perf_before_indexes.sql.
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+CREATE INDEX idx_tickets_perf_date_status ON tickets(sale_time_id,status);
+BEGIN
+    DBMS_STATS.GATHER_TABLE_STATS(USER,'TICKETS',cascade=>TRUE);
+END;
+/
+PROMPT Индекс IDX_TICKETS_PERF_DATE_STATUS создан; статистика обновлена.
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\06_performance\10_perf_after_indexes.sql
+================================================================================
+-- =====================================================================
+-- Фиксация плана и времени выполнения ПОСЛЕ создания индекса.
+-- =====================================================================
+SET TIMING ON
+SET LINESIZE 180
+SET PAGESIZE 100
+
+EXPLAIN PLAN SET STATEMENT_ID='TICKETS_AFTER_IDX' FOR
+SELECT /*+ INDEX(t idx_tickets_perf_date_status) */ COUNT(*) AS sold_tickets,
+       NVL(SUM(t.price),0) AS revenue
+  FROM tickets t
+ WHERE t.status='SOLD'
+   AND t.sale_time_id=(
+       SELECT MAX(m.time_id)
+         FROM dim_match m
+        WHERE m.opponent_name LIKE 'TEST PERF %'
+   );
+
+SELECT *
+  FROM TABLE(DBMS_XPLAN.DISPLAY(NULL,'TICKETS_AFTER_IDX','BASIC +COST +ROWS +PREDICATE'));
+
+PROMPT Фактический запуск запроса ПОСЛЕ индексации:
+SELECT /*+ INDEX(t idx_tickets_perf_date_status) */ COUNT(*) AS sold_tickets,
+       NVL(SUM(t.price),0) AS revenue
+  FROM tickets t
+ WHERE t.status='SOLD'
+   AND t.sale_time_id=(
+       SELECT MAX(m.time_id)
+         FROM dim_match m
+        WHERE m.opponent_name LIKE 'TEST PERF %'
+   );
+
+PROMPT Сопоставьте время выполнения и планы ДО/ПОСЛЕ создания индекса.
+SET TIMING OFF
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\06_performance\11_additional_indexes.sql
+================================================================================
+-- =====================================================================
+-- Дополнительные B-tree индексы для типовых связей и фильтров приложения.
+-- Выполнять после эксперимента сравнения планов.
+-- =====================================================================
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+
+CREATE INDEX idx_sector_stadium ON dim_sector(stadium_id);
+CREATE INDEX idx_match_date ON dim_match(match_date);
+CREATE INDEX idx_match_stadium_date ON dim_match(stadium_id,match_date);
+CREATE INDEX idx_player_name ON dim_player(last_name,first_name);
+CREATE INDEX idx_ticket_match_status ON tickets(match_id,status);
+CREATE INDEX idx_ticket_fan ON tickets(fan_id);
+CREATE INDEX idx_merch_ord_time_st ON merch_orders(time_id,status);
+CREATE INDEX idx_stats_player_match ON fact_match_stats(player_id,match_id);
+CREATE INDEX idx_favorites_player ON fan_player_favorites(player_id);
+
+BEGIN
+    DBMS_STATS.GATHER_SCHEMA_STATS(USER,cascade=>TRUE);
+END;
+/
+PROMPT Дополнительные индексы созданы; статистика схемы обновлена.
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\examples\12_test_as_user.sql
+================================================================================
+-- Выполнять после CONNECT HK_USER/...@<PDB_SERVICE>
+VAR rc REFCURSOR;
+EXEC HK_DINAMO.PKG_USER_API.LIST_PLAYERS(:rc);
+PRINT rc;
+
+VAR rc REFCURSOR;
+EXEC HK_DINAMO.PKG_USER_API.LIST_MATCHES(DATE '2026-11-01', DATE '2026-12-31', :rc);
+PRINT rc;
+
+VAR rc REFCURSOR;
+EXEC HK_DINAMO.PKG_USER_API.LIST_FAVORITES(1, :rc);
+PRINT rc;
+
+-- Демонстрационный MATCH_ID=1; замените его при изменении seed-данных.
+VAR rc REFCURSOR;
+EXEC HK_DINAMO.PKG_USER_API.LIST_AVAILABLE_TICKETS(1, :rc);
+PRINT rc;
+
+-- Для свежей установки demo_user обычно имеет APP_USER_ID=1,
+-- DB_USERNAME='HK_USER', а первый свободный билет обычно TICKET_ID=1.
+-- current_fan_id дополнительно проверяет привязку к текущей Oracle-сессии. Раскомментируйте для проверки:
+-- EXEC HK_DINAMO.PKG_USER_API.RESERVE_TICKET(1, 1, 15);
+-- COMMIT;
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\examples\13_test_as_admin.sql
+================================================================================
+-- Выполнять после CONNECT HK_ADMIN/...@<PDB_SERVICE>
+VAR new_player_id NUMBER;
+EXEC HK_DINAMO.PKG_ADMIN_API.ADD_PLAYER('Демо','Администратор','FORWARD',91,DATE '2000-01-01','Беларусь',185,83,:new_player_id);
+PRINT new_player_id;
+COMMIT;
+
+SELECT HK_DINAMO.F_TICKET_REVENUE(DATE '2026-11-01',DATE '2026-12-31') AS ticket_revenue
+FROM dual;
+
+
+VAR rc REFCURSOR;
+EXEC HK_DINAMO.PKG_ADMIN_API.TICKET_SALES_REPORT(DATE '2026-11-01',DATE '2026-12-31',:rc);
+PRINT rc;
+
+VAR rc REFCURSOR;
+EXEC HK_DINAMO.PKG_ADMIN_API.PLAYER_POPULARITY_REPORT(:rc);
+PRINT rc;
+
+
+================================================================================
+FILE: HK_DINAMO_Oracle19c\examples\14_test_as_main_admin.sql
+================================================================================
+-- Выполнять после CONNECT HK_MAIN_ADMIN/...@<PDB_SERVICE>
+VAR app_user_id NUMBER;
+EXEC HK_DINAMO.PKG_SECURITY_API.CREATE_APP_USER(
+  'demo_admin_app',
+  'DEMO_HASH_VALUE_FROM_APPLICATION_PASSWORD_HASHER_2026',
+  'demo.admin@example.local',
+  'ADMIN',
+  NULL,
+  :app_user_id
+);
+PRINT app_user_id;
+-- При необходимости привяжите запись к уже созданной Oracle-учётной записи:
+-- EXEC HK_DINAMO.PKG_SECURITY_API.BIND_APP_USER_DB_USER(:app_user_id, 'HK_ADMIN');
+COMMIT;
+
+

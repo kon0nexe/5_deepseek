@@ -1,0 +1,12 @@
+﻿Docker Engine: 29.7.2
+SQL*Plus успешно подключился к Oracle.
+
+PL/SQL procedure successfully completed.
+
+DECLARE
+*
+ERROR at line 1:
+ORA-01403: no data found
+ORA-06512: at line 4
+
+

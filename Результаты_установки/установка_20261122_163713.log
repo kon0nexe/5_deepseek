@@ -1,0 +1,51 @@
+﻿Docker Engine: 29.7.2
+19.3.0.0: Pulling from database/enterprise
+d1c65ea82e00: Pulling fs layer
+bd9ddc54bea9: Pulling fs layer
+7eae5bb4ae8d: Pulling fs layer
+d369857c05f5: Pulling fs layer
+a9ef30b0fbac: Pulling fs layer
+ececdf85ccc1: Pulling fs layer
+ed8a2a4cfd94: Pulling fs layer
+cd842977d75a: Pulling fs layer
+6c8ef5b8a264: Pulling fs layer
+c354a9df2c98: Pulling fs layer
+4fd9e62ba529: Pulling fs layer
+aa78eb2e537b: Pulling fs layer
+62ecd3581b94: Pulling fs layer
+50949e083bb6: Pulling fs layer
+8804105b7364: Pulling fs layer
+ed8a2a4cfd94: Already exists
+c354a9df2c98: Already exists
+50949e083bb6: Already exists
+7eae5bb4ae8d: Already exists
+d369857c05f5: Already exists
+cd842977d75a: Already exists
+bd9ddc54bea9: Already exists
+6c8ef5b8a264: Already exists
+62ecd3581b94: Already exists
+ececdf85ccc1: Already exists
+4fd9e62ba529: Already exists
+aa78eb2e537b: Already exists
+8804105b7364: Already exists
+d1c65ea82e00: Already exists
+a9ef30b0fbac: Download complete
+a9ef30b0fbac: Pull complete
+62ecd3581b94: Pull complete
+d1c65ea82e00: Pull complete
+ed8a2a4cfd94: Pull complete
+c354a9df2c98: Pull complete
+6c8ef5b8a264: Pull complete
+4fd9e62ba529: Pull complete
+d369857c05f5: Pull complete
+aa78eb2e537b: Pull complete
+8804105b7364: Pull complete
+bd9ddc54bea9: Pull complete
+ececdf85ccc1: Pull complete
+cd842977d75a: Pull complete
+7eae5bb4ae8d: Pull complete
+50949e083bb6: Pull complete
+Digest: sha256:2df7530ac81566f8659e13d41fda029e5c08a983147e5b372b173476a74ab62e
+Status: Downloaded newer image for container-registry.oracle.com/database/enterprise:19.3.0.0
+container-registry.oracle.com/database/enterprise:19.3.0.0
+c11e6a84c8bdfe5f1b87174673c368b3144be6a70dbab9b048cf25c36c54d6d4

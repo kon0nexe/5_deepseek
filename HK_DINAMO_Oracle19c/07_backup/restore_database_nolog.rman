@@ -1,0 +1,7 @@
+# TEMPLATE: restore a NOARCHIVELOG full backup.
+# Requires a consistent cold backup and correct control-file recovery.
+STARTUP NOMOUNT;
+RESTORE CONTROLFILE FROM AUTOBACKUP;
+ALTER DATABASE MOUNT;
+RESTORE DATABASE;
+ALTER DATABASE OPEN RESETLOGS;

@@ -1,0 +1,25 @@
+{
+  "name": "hk-dinamo-minsk-web-app",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Клиентское веб-приложение на HTML/CSS/JavaScript и Node.js для Oracle Database 19c",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js && node --check src/oracle.js && node --check src/security.js && node --check src/utils.js && node --check public/app.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "express-session": "^1.18.2",
+    "helmet": "^8.1.0",
+    "multer": "^2.0.2",
+    "oracledb": "^6.10.0"
+  }
+}

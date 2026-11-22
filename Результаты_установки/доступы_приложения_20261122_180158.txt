@@ -1,0 +1,16 @@
+﻿HK DINAMO - application connection details
+Created: 2026-11-22 18:21:52
+Container: oracle19c-dinamo
+PDB service: ORCLPDB1
+Connection: 127.0.0.1:1521/ORCLPDB1
+DB_USER=HK_WEB_APP
+DB_PASSWORD=Aa7_Mk3ay4sJ9Q7cPMjGpq7wsG9U
+SETUP_TOKEN=c282ce53a9c82ae81ebb0760691b72fe84f174e495c974140d5c26dbe6e8263f
+SESSION_SECRET=5cf4d9fcd87fba72180411531b202793a847d4d3a7c5d1ae0de32120a2cc6257
+HK_DINAMO=Aa7_tb6oFAdF5SbJEZrCQmYz
+HK_MAIN_ADMIN=Aa7_y2aboJZB3ZnPnmIpYfNY
+HK_ADMIN=Aa7_uPYn2jAgeOHPdOIU4gCs
+HK_USER=Aa7_Qb9YypWPJyMfk4oyxLCw
+SYS=Aa7_BpOef7YqZMV3JHCbWi9Pawbd
+
+Keep this file private. Never share it or the .env file.

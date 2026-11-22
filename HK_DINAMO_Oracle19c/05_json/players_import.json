@@ -1,0 +1,24 @@
+{
+  "players": [
+    {
+      "first_name": "Алексей",
+      "last_name": "Демонстрационный",
+      "position": "FORWARD",
+      "jersey_number": 71,
+      "birth_date": "2001-03-14",
+      "country": "Беларусь",
+      "height_cm": 184,
+      "weight_kg": 84
+    },
+    {
+      "first_name": "Иван",
+      "last_name": "Тестовый",
+      "position": "DEFENDER",
+      "jersey_number": 72,
+      "birth_date": "2000-07-22",
+      "country": "Беларусь",
+      "height_cm": 188,
+      "weight_kg": 89
+    }
+  ]
+}

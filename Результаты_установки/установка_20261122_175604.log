@@ -1,0 +1,216 @@
+﻿Docker Engine: 29.7.2
+Existing Oracle data mount: bind|D:\HK_DINAMO\Oracle\data|/opt/oracle/oradata
+SQL*Plus успешно подключился к Oracle.
+Целевая PDB: ORCLPDB1
+
+Session altered.
+
+
+PL/SQL procedure successfully completed.
+
+
+User altered.
+
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+Таблицы и ограничения созданы.
+
+Trigger created.
+
+
+Trigger created.
+
+Триггеры TRG_DIM_MATCH_BIU и TRG_TICKETS_BIU созданы.
+
+Function created.
+
+
+Function created.
+
+Функции F_TICKET_REVENUE и F_PLAYER_POPULARITY созданы.
+
+View created.
+
+
+View created.
+
+
+View created.
+
+
+View created.
+
+Представления V_TICKET_SALES_BY_PERIOD, V_PLAYER_POPULARITY,
+V_PLAYER_PERFORMANCE и V_MERCH_SALES_BY_PERIOD созданы.
+
+Package created.
+
+
+Package body created.
+
+
+Package created.
+
+
+Package body created.
+
+
+Package created.
+
+
+Package body created.
+
+
+Package created.
+
+
+Package body created.
+
+Пакеты PKG_ADMIN_API, PKG_USER_API, PKG_SECURITY_API и PKG_JSON_IO созданы.
+
+4383 rows created.
+
+Демонстрационные данные добавлены. FAN_ID=1, MATCH_ID=1, PLAYER_ID=1
+
+PL/SQL procedure successfully completed.
+
+Демонстрационные данные созданы.
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+Права EXECUTE выданы ролям HK_USER_ROLE, HK_ADMIN_ROLE и HK_MAIN_ADMIN_ROLE.
+Прямых SELECT/INSERT/UPDATE/DELETE-привилегий на таблицы не выдавалось.
+Загружено строк в TICKETS для тестирования: 100000
+
+PL/SQL procedure successfully completed.
+
+INVALID_OBJECTS=1
+COMPILE_ERRORS=20
+DECLARE
+*
+ERROR at line 1:
+ORA-20010: Invalid objects or compilation errors found.
+ORA-06512: at line 10
+
+

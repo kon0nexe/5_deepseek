@@ -1,0 +1,5 @@
+﻿Docker Engine: 29.7.2
+19.3.0.0: Pulling from database/enterprise
+Digest: sha256:2df7530ac81566f8659e13d41fda029e5c08a983147e5b372b173476a74ab62e
+Status: Image is up to date for container-registry.oracle.com/database/enterprise:19.3.0.0
+container-registry.oracle.com/database/enterprise:19.3.0.0

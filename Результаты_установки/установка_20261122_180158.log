@@ -1,0 +1,449 @@
+﻿Docker Engine: 29.7.2
+19.3.0.0: Pulling from database/enterprise
+Digest: sha256:2df7530ac81566f8659e13d41fda029e5c08a983147e5b372b173476a74ab62e
+Status: Image is up to date for container-registry.oracle.com/database/enterprise:19.3.0.0
+container-registry.oracle.com/database/enterprise:19.3.0.0
+3d9e53762a2e1562ed2b96129bd4e4f930a2b69ce0db73e20a0dd1dfb8eee653
+Проверено подключение каталога Oracle: bind|D:\HK_DINAMO\Oracle\data|/opt/oracle/oradata
+Oracle готов к работе.
+
+PL/SQL procedure successfully completed.
+
+
+PL/SQL procedure successfully completed.
+
+
+Session altered.
+
+
+PL/SQL procedure successfully completed.
+
+
+User created.
+
+
+Grant succeeded.
+
+
+User created.
+
+
+User created.
+
+
+User created.
+
+
+Grant succeeded.
+
+
+Role created.
+
+
+Role created.
+
+
+Role created.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Directory created.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+=============================================================
+Созданы HK_DINAMO, HK_MAIN_ADMIN, HK_ADMIN, HK_USER и роли.
+Смените пароли и продолжите установку от HK_DINAMO.
+=============================================================
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Comment created.
+
+
+Table created.
+
+
+Comment created.
+
+Таблицы и ограничения созданы.
+
+Trigger created.
+
+
+Trigger created.
+
+Триггеры TRG_DIM_MATCH_BIU и TRG_TICKETS_BIU созданы.
+
+Function created.
+
+
+Function created.
+
+Функции F_TICKET_REVENUE и F_PLAYER_POPULARITY созданы.
+
+View created.
+
+
+View created.
+
+
+View created.
+
+
+View created.
+
+Представления V_TICKET_SALES_BY_PERIOD, V_PLAYER_POPULARITY,
+V_PLAYER_PERFORMANCE и V_MERCH_SALES_BY_PERIOD созданы.
+
+Package created.
+
+
+Package body created.
+
+
+Package created.
+
+
+Package body created.
+
+
+Package created.
+
+
+Package body created.
+
+
+Package created.
+
+
+Package body created.
+
+Пакеты PKG_ADMIN_API, PKG_USER_API, PKG_SECURITY_API и PKG_JSON_IO созданы.
+
+4383 rows created.
+
+Демонстрационные данные добавлены. FAN_ID=1, MATCH_ID=1, PLAYER_ID=1
+
+PL/SQL procedure successfully completed.
+
+Демонстрационные данные созданы.
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+Права EXECUTE выданы ролям HK_USER_ROLE, HK_ADMIN_ROLE и HK_MAIN_ADMIN_ROLE.
+Прямых SELECT/INSERT/UPDATE/DELETE-привилегий на таблицы не выдавалось.
+Загружено строк в TICKETS для тестирования: 100000
+
+PL/SQL procedure successfully completed.
+
+INVALID_OBJECTS=0
+COMPILE_ERRORS=0
+
+PL/SQL procedure successfully completed.
+
+
+TABLE_NAME
+--------------------------------------------------------------------------------
+APP_USERS
+DIM_FAN
+DIM_MATCH
+DIM_MERCH
+DIM_PLAYER
+DIM_SECTOR
+DIM_STADIUM
+DIM_TIME
+FACT_MATCH_STATS
+FAN_PLAYER_FAVORITES
+MERCH_ORDERS
+
+TABLE_NAME
+--------------------------------------------------------------------------------
+TICKETS
+
+12 rows selected.
+
+
+Session altered.
+
+
+PL/SQL procedure successfully completed.
+
+
+Package created.
+
+
+Package body created.
+
+No errors.
+No errors.
+
+PL/SQL procedure successfully completed.
+
+PKG_WEB_API создан. Следующий шаг: выполнить db/02_create_web_user.sql от SYS в PDB.
+Демонстрационный матч: MATCH_ID=1
+Добавлено мест в сектор A: 0
+Добавлено мест в сектор B: 0
+Всего мест в демонстрационном матче: 10000
+100 000 тестовых билетов не изменялись.
+
+PL/SQL procedure successfully completed.
+
+=== Проверка демонстрационного матча и мест ===
+
+  MATCH_ID MATCH_DATE
+---------- ----------
+OPPONENT_NAME
+--------------------------------------------------------------------------------
+STADIUM
+--------------------------------------------------------------------------------
+DEMO_SEATS    SECTORS DISTINCT_ROWS
+---------- ---------- -------------
+	 1 2026-11-20
+Демонстрационный соперник
+Минск-Арена
+     10000	    2		 50
+
+
+
+STATUS					 TICKETS_COUNT
+---------------------------------------- -------------
+FREE						  9997
+RESERVED					     1
+RETURNED					     1
+SOLD						     1
+
+
+Session altered.
+
+
+PL/SQL procedure successfully completed.
+
+
+Grant succeeded.
+
+
+Grant succeeded.
+
+HK_WEB_APP создан/обновлён. У него есть CREATE SESSION и EXECUTE только на HK_DINAMO.PKG_WEB_API.
+=== Статус объектов PKG_WEB_API ===
+
+OBJECT_NAME															 OBJECT_TYPE		 STATUS
+-------------------------------------------------------------------------------------------------------------------------------- ----------------------- -------
+PKG_WEB_API															 PACKAGE		 VALID
+PKG_WEB_API															 PACKAGE BODY		 VALID
+
+=== Ошибки компиляции PKG_WEB_API ===
+
+no rows selected
+
+=== Наличие demo-матча ===
+
+  MATCH_ID MATCH_DATE
+---------- ------------------
+OPPONENT_NAME
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+STADIUM_ID
+----------
+	 1 20-NOV-26
+Демонстрационный соперник
+	 1
+
+
+=== Количество мест на демонстрационный матч ===
+
+DEMO_SEATS    SECTORS ROWS_COUNT
+---------- ---------- ----------
+     10000	    2	      50
+
+=== Билеты по статусам на demo-матч ===
+
+STATUS					 TICKETS_COUNT
+---------------------------------------- -------------
+FREE						  9997
+RESERVED					     1
+RETURNED					     1
+SOLD						     1
+
+=== Технический пользователь ===
+
+USERNAME
+--------------------------------------------------------------------------------------------------------------------------------
+HK_WEB_APP
+
+
+TABLE_NAME	      ROW_COUNT
+-------------------- ----------
+APP_USERS		      1
+DIM_FAN 		      1
+DIM_MATCH		     11
+DIM_MERCH		      2
+DIM_PLAYER		      3
+DIM_SECTOR		      2
+DIM_STADIUM		      1
+DIM_TIME		   4383
+FACT_MATCH_STATS	      2
+FAN_PLAYER_FAVORITES	      1
+MERCH_ORDERS		      1
+TICKETS 		 110000
+
+12 rows selected.
+
+=== Unicode-содержимое демо-строк (ASCIISTR) ===
+
+  MATCH_ID
+----------
+OPPONENT_ASCII
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+STADIUM_ASCII
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+CITY_ASCII
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+	 1
+\0414\0435\043C\043E\043D\0441\0442\0440\0430\0446\0438\043E\043D\043D\044B\0439 \0441\043E\043F\0435\0440\043D\0438\043A
+\041C\0438\043D\0441\043A-\0410\0440\0435\043D\0430
+\041C\0438\043D\0441\043A
+
+
+=== Технический пользователь ===
+
+USERNAME
+--------------------------------------------------------------------------------------------------------------------------------
+HK_WEB_APP
+

@@ -1,0 +1,61 @@
+СОДЕРЖАНИЕ ЕДИНОГО КОМПЛЕКТА «ДИНАМО-МИНСК»
+
+Frontend веб-приложения: обычные HTML, CSS и JavaScript.
+В каталоге HK_DINAMO_Node_App/public находятся index.html, styles.css и app.js.
+EJS-шаблонов, каталога views/ и зависимости ejs в комплекте нет.
+
+Node.js + Express предоставляет REST API и подключение к Oracle Database 19c.
+
+Файлы комплекта:
+00_ИСПРАВЛЕНИЕ_UTF8_SQL_DEVELOPER.md
+00_ПРОЧИТАЙ_СНАЧАЛА.md
+01_INSTALL_ALL.bat
+01_INSTALL_ALL.ps1
+02_START_WEB_APP.bat
+HK_DINAMO_Node_App/.env.example
+HK_DINAMO_Node_App/.gitignore
+HK_DINAMO_Node_App/README.md
+HK_DINAMO_Node_App/START_HERE.md
+HK_DINAMO_Node_App/db/01_web_app_api.sql
+HK_DINAMO_Node_App/db/02_create_web_user.sql
+HK_DINAMO_Node_App/db/03_verify_web_app.sql
+HK_DINAMO_Node_App/db/04_repair_demo_data.sql
+HK_DINAMO_Node_App/db/05_check_seed_counts.sql
+HK_DINAMO_Node_App/db/06_unicode_diagnostic.sql
+HK_DINAMO_Node_App/package.json
+HK_DINAMO_Node_App/public/app.js
+HK_DINAMO_Node_App/public/index.html
+HK_DINAMO_Node_App/public/styles.css
+HK_DINAMO_Node_App/scripts/make_guide_docx.py
+HK_DINAMO_Node_App/server.js
+HK_DINAMO_Node_App/src/oracle.js
+HK_DINAMO_Node_App/src/security.js
+HK_DINAMO_Node_App/src/utils.js
+HK_DINAMO_Node_App/start.bat
+HK_DINAMO_Node_App/start.ps1
+HK_DINAMO_Node_App/Руководство_по_запуску_и_использованию.docx
+HK_DINAMO_Oracle19c/00_sys/00_create_users_roles.sql
+HK_DINAMO_Oracle19c/01_schema/01_tables.sql
+HK_DINAMO_Oracle19c/02_logic/02_triggers.sql
+HK_DINAMO_Oracle19c/02_logic/03_functions.sql
+HK_DINAMO_Oracle19c/02_logic/04_views.sql
+HK_DINAMO_Oracle19c/02_logic/05_packages.sql
+HK_DINAMO_Oracle19c/03_security/07_grants.sql
+HK_DINAMO_Oracle19c/04_data/06_seed_demo_data.sql
+HK_DINAMO_Oracle19c/04_data/install_all.sql
+HK_DINAMO_Oracle19c/05_json/players_import.json
+HK_DINAMO_Oracle19c/06_performance/07_load_100k_tickets.sql
+HK_DINAMO_Oracle19c/06_performance/08_perf_before_indexes.sql
+HK_DINAMO_Oracle19c/06_performance/09_create_performance_index.sql
+HK_DINAMO_Oracle19c/06_performance/10_perf_after_indexes.sql
+HK_DINAMO_Oracle19c/06_performance/11_additional_indexes.sql
+HK_DINAMO_Oracle19c/07_backup/backup_full_archivelog.rman
+HK_DINAMO_Oracle19c/07_backup/backup_full_nolog.rman
+HK_DINAMO_Oracle19c/07_backup/restore_database.rman
+HK_DINAMO_Oracle19c/07_backup/restore_database_nolog.rman
+HK_DINAMO_Oracle19c/examples/12_test_as_user.sql
+HK_DINAMO_Oracle19c/examples/13_test_as_admin.sql
+HK_DINAMO_Oracle19c/examples/14_test_as_main_admin.sql
+Документы/Лист_задания_к_курсовой_работе.docx
+Документы/Пояснительная_записка_разделы_1-6.docx
+Руководство_по_установке_и_запуску.docx
